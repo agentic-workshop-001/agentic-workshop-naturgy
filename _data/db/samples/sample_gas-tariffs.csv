@@ -1,0 +1,4 @@
+tarifa,fijo_mes_eur,variable_eur_kwh,vigencia_desde
+RL1,3.85,0.0045,2026-01-01
+RL2,6.50,0.0038,2026-01-01
+RL3,12.00,0.0031,2026-01-01

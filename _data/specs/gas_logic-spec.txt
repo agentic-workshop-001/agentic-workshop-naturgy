@@ -1,0 +1,99 @@
+# GAS Workshop — Logic Spec (SSOT)
+# This file is the single source of truth for billing logic and rounding.
+
+## Inputs (by period YYYY-MM)
+For each CUPS in supply-points where estado=ACTIVO:
+
+1) Boundary readings
+- period_start = first day of YYYY-MM (00:00)
+- period_end = last day of YYYY-MM (23:59)
+- lectura_inicio: last reading with fecha < period_start (strictly before)
+- lectura_fin: last reading with fecha <= period_end
+If any missing -> billing error (no invoice)
+
+2) Tariff
+- Determine tariff code from supply-points.tarifa
+- Select tariff row with max(vigencia_desde) <= period_end
+If missing -> billing error
+
+3) Conversion factors
+- Determine zona from supply-points.zona
+- Determine mes = YYYY-MM
+- Select conversion factor by (zona, mes)
+If missing -> billing error
+
+4) Taxes (IVA parametrizable)
+- Select taxes row for taxCode='IVA' with max(vigencia_desde) <= period_end
+If missing -> billing error
+
+5) Optional charges
+- alquiler_eur: OPTIONAL. If not configured, treat as 0.00
+  - Workshop default: 0.00
+
+## Calculations
+Let:
+- m3_consumidos = lectura_fin_m3 - lectura_inicio_m3
+If m3_consumidos < 0 -> billing error
+
+- kwh = m3_consumidos * coef_conv * pcs_kwh_m3
+
+Fixed term prorated:
+- days_in_period = number of days in the month (e.g. 2026-02 -> 28/29)
+- days_in_month = same as days_in_period (monthly billing)
+- coste_fijo = fijo_mes_eur * (days_in_period / days_in_month)
+  => For monthly billing this is effectively fijo_mes_eur, but keep the formula (for clarity and future extension)
+
+Variable term:
+- coste_variable = kwh * variable_eur_kwh
+
+Base imponible:
+- base = coste_fijo + coste_variable + alquiler_eur
+
+IVA:
+- impuestos = base * iva_rate
+
+Total:
+- total = base + impuestos
+
+## Rounding
+- Monetary amounts (EUR): scale=2, RoundingMode=HALF_UP
+- kWh: keep scale=3 internally; present scale=2 or 3 in UI/PDF (backend returns scale=3)
+
+## Invoice generation
+Invoice header must include:
+- numero_factura (string): deterministic + unique, format:
+  GAS-{YYYYMM}-{CUPS}-{seq}
+  where seq is a 3-digit sequence per (YYYYMM) starting at 001.
+- cups
+- periodo_inicio (YYYY-MM-01)
+- periodo_fin (YYYY-MM-lastDay)
+- base (EUR)
+- impuestos (EUR)
+- total (EUR)
+- fecha_emision (today)
+
+Invoice lines (minimum):
+1) TERMINO_FIJO
+   - descripcion: "Término fijo"
+   - cantidad: 1
+   - precio_unitario: fijo_mes_eur (prorrateado si aplica)
+   - importe: coste_fijo
+2) TERMINO_VARIABLE
+   - descripcion: "Término variable"
+   - cantidad: kwh
+   - precio_unitario: variable_eur_kwh
+   - importe: coste_variable
+3) (Optional) ALQUILER
+   - only if alquiler_eur > 0
+4) IVA
+   - descripcion: "IVA"
+   - cantidad: iva_rate
+   - precio_unitario: base
+   - importe: impuestos
+
+## Idempotency
+- Unique business key: (cups, period YYYY-MM)
+- If run billing again for same key:
+  - replace invoice (delete previous invoice + lines, insert new) OR update in-place
+  - Workshop default: replace (simpler) and keep invoiceId stable if desired.
+  - If stable ID is not implemented, at least guarantee no duplicates.

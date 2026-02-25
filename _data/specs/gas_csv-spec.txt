@@ -1,0 +1,83 @@
+# GAS Workshop — CSV Spec (SSOT)
+# Paths
+# - Samples live in: _data/db/samples/gas/
+# - This file is the single source of truth for DB schema + CSV import formats.
+
+## 1) supply-points.csv  (Maestro de puntos de suministro)
+File: _data/db/samples/gas/supply-points.csv
+
+Columns (required unless stated):
+- cups (string, PK)              # e.g. ES0021000000001AA
+- zona (string, required)        # e.g. ZONA1
+- tarifa (string, required)      # e.g. RL1, RL2
+- estado (enum, required)        # ACTIVO | INACTIVO
+
+Constraints / validations:
+- cups not blank, unique
+- estado in {ACTIVO, INACTIVO}
+
+## 2) gas-readings.csv  (Lecturas de contador en m³)
+File: _data/db/samples/gas/gas-readings.csv
+
+Columns:
+- cups (string, FK -> supply-points.cups)
+- fecha (date, YYYY-MM-DD)
+- lectura_m3 (decimal >= 0)
+- tipo (enum)                    # REAL | ESTIMADA
+
+Constraints / validations:
+- (cups, fecha) unique
+- cups must exist in supply-points
+- lectura_m3 >= 0
+- tipo in {REAL, ESTIMADA}
+
+Workshop rule for missing boundary readings:
+- For a given billing period (YYYY-MM), billing requires:
+  - lectura_inicio: last reading strictly before period start
+  - lectura_fin: last reading on or before period end
+- If any boundary reading is missing: skip that CUPS for that period and record a billing error row.
+
+Workshop rule for negative consumption:
+- If lectura_fin < lectura_inicio: billing error row (do not invoice).
+
+## 3) gas-tariffs.csv  (Tarifario: término fijo + variable)
+File: _data/db/samples/gas/gas-tariffs.csv
+
+Columns:
+- tarifa (string, PK)            # RL1, RL2, RL3...
+- fijo_mes_eur (decimal >= 0)    # monthly fixed charge (EUR)
+- variable_eur_kwh (decimal >= 0)# variable energy price (EUR/kWh)
+- vigencia_desde (date, YYYY-MM-DD)
+
+Constraints / validations:
+- tarifa not blank, unique
+- fijo_mes_eur >= 0
+- variable_eur_kwh >= 0
+- When selecting tariff for a period end date, pick the row with max(vigencia_desde) <= period_end.
+
+## 4) gas-conversion-factors.csv  (Factores conversión por zona/mes)
+File: _data/db/samples/gas/gas-conversion-factors.csv
+
+Columns:
+- zona (string)
+- mes (string, YYYY-MM)
+- coef_conv (decimal > 0)
+- pcs_kwh_m3 (decimal > 0)
+
+Constraints / validations:
+- (zona, mes) unique
+- coef_conv > 0
+- pcs_kwh_m3 > 0
+
+## 5) taxes.csv  (IVA parametrizable)
+File: _data/db/samples/gas/taxes.csv
+
+Columns:
+- taxCode (string, PK)           # e.g. IVA
+- taxRate (decimal)              # e.g. 0.21
+- vigencia_desde (date, YYYY-MM-DD)
+
+Constraints / validations:
+- taxCode not blank
+- taxRate in [0, 1]
+- When selecting tax for a period end date, pick max(vigencia_desde) <= period_end.

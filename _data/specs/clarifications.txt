@@ -1,0 +1,115 @@
+# Clarifications - DB Scaffold + API Business Layer
+
+# ============================================================
+# GAS JPA/H2 Scaffold – Clarifications (db-scaffold sprint)
+# ============================================================
+
+## CSV Path Resolution
+**Observation**: El spec indica rutas `_data/db/samples/gas/*.csv` pero los archivos
+de muestra actuales están en `_data/db/samples/sample_*.csv` (sin subdirectorio `gas/`,
+con prefijo `sample_`).
+**Decision**: El seed runner busca en ambas rutas (prioridad A → B):
+  A) `{dataDir}/gas/{specFileName}`      — ruta canónica del spec (preferida)
+  B) `{dataDir}/sample_{specFileName}`   — ruta real de los samples actuales
+Si ninguna existe, la app bootea igual y deja un WARN en el log.
+
+## Invalid Dates in gas-readings.csv
+**Observation**: El archivo `sample_gas-readings.csv` contiene filas con `fecha=2026-02-29`.
+El año 2026 NO es bisiesto (2026 % 4 ≠ 0), por lo que febrero tiene 28 días.
+`LocalDate.parse("2026-02-29")` lanza `DateTimeParseException`.
+**Decision**: Las filas con fecha inválida se omiten con WARN; no rompen el boot.
+  → 3 de 6 filas se saltan (las del 2026-02-29).
+  → 3 lecturas válidas quedan en DB (todas del 2026-01-31).
+**Impact**: El smoke test `gasReadings_count()` espera exactamente 3 lecturas.
+**Fix pendiente**: Corregir `2026-02-29` → `2026-02-28` en el CSV de samples
+  cuando se actualice la capa de datos.
+
+## GasTariff / TaxConfig – PK Surrogate con Versioning
+**Decision**: Aunque el spec dice "tarifa (string, PK)" y "taxCode (string, PK)",
+se usa una PK surrogate Long + UNIQUE(tarifa, vigencia_desde) / UNIQUE(taxCode, vigencia_desde)
+para soportar el requisito de lógica "max(vigencia_desde) <= period_end" sin restricción
+de una sola fila por código. Esto no rompe el contrato del spec; simplemente permite
+series temporales por código tarifario/impositivo.
+
+## H2 NON_KEYWORDS=VALUE
+**Decision**: Se añade `NON_KEYWORDS=VALUE` a la URL de H2 para evitar conflictos
+con la palabra reservada VALUE en H2 2.2.x al usar nombres de columna normales.
+
+
+
+## API Business Layer (backend-scaffold)
+
+### Active Contract Detection for Billing
+**Decision**: A contract is considered active in period [from, to] when:
+  `startDate <= to AND (endDate IS NULL OR endDate >= from)`
+- All contracts loaded via `findAll()` and filtered in service layer (simple for workshop scale).
+
+### Invoice Idempotency
+**Decision**: If `billing/run` is called twice for the same period, existing invoices are skipped.
+- Uniqueness enforced by DB constraint: (contract_id, period).
+- Second run returns empty list of generated invoices.
+
+### PDF Generation
+**Decision**: Simple single-page PDF using Apache PDFBox 3.0.2.
+- Latin-1 safe: special chars (accents) are replaced by PDFBox's standard Type1 font.
+- PDF is generated on-the-fly (not stored on disk); generated from Invoice entity fields.
+
+### CSV Import via Multipart
+**Decision**: Duplicate readings in uploaded CSV return a 400-level message in `errors[]`
+- Consistent with logic-spec: error 400 for duplicate hour.
+- Import result always returns `{inserted, skipped, errors[]}`.
+
+### Reading CRUD Endpoint
+**Decision**: No PUT for readings (composite PK makes partial update awkward).
+- Delete + re-POST is the update pattern for readings.
+
+# Clarifications - DB Scaffold
+
+## Seed Data Idempotency
+**Decision**: Seed import checks if data already exists before inserting.
+- Meters: checked by `meterId`
+- Contracts: checked by `contractId`
+- Readings: checked by combination of `meterId + date + hour` (unique constraint)
+- Result: safe to restart without duplicates
+
+## Empty/Optional Fields Handling
+**Decision**: Empty CSV fields are treated as `null` in database.
+- Examples: `cups`, `postalCode`, `email`, `iban`, `endDate`, `quality`
+- Exception: required fields (PK, FK, address, city, etc.) cause import failure if empty
+
+## Contract Type Validation
+**Decision**: Database layer does NOT validate contract type consistency (flatMonthlyFeeEur vs fixedPricePerKwhEur).
+- This validation belongs to billing logic layer (backend-scaffold).
+- Seed import assumes CSV is well-formed per logic-spec.
+
+## Reading Duplicate Handling
+**Decision**: If duplicate reading (same meterId + date + hour) is found, skip silently with debug log.
+- This prevents import failures on restart.
+- Unique constraint on DB prevents dual inserts at DB level.
+
+## H2 In-Memory Database
+**Decision**: Using H2 in-memory (jdbc:h2:mem) for workshop simplicity.
+- Schema recreated on each boot (ddl-auto=create-drop).
+- Seed runs on every startup (if data not present).
+- Suitable for testing and demo.
+
+## Billing Cycle
+**Decision**: Only MONTHLY is implemented in enum per logic-spec.
+- Future: expandable for other cycles if needed.
+
+## Quality Field
+**Decision**: Quality enum (REAL, ESTIMATED) is optional in readings.
+- NULL quality is allowed; useful for future analytics.
+
+## Datetime Handling
+**Decision**: Using LocalDate for dates, Integer for hour.
+- Reading composite key: (meter_id, date, hour) instead of timestamp.
+- Allows hourly readings aggregation as per logic-spec.
+
+## H2 Reserved-Word: HOUR
+**Decision**: The `hour` field in ReadingId is mapped to DB column `reading_hour`.
+- Reason: H2 2.2.x (bundled with Spring Boot 3.2.x) reserves the identifier `HOUR`
+  as a datetime keyword (used in EXTRACT expressions). Using `hour` as a column name
+  causes `JdbcSQLSyntaxErrorException: expected "identifier"` at schema creation.
+- Fix: `@Column(name = "reading_hour")` in ReadingId.java.
+- Impact: DB column is `reading_hour`; Java field and JPQL path remain `hour`.
