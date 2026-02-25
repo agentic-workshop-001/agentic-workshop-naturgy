@@ -11,9 +11,6 @@ tools:
 Build (or restyle) the workshop React/Vite UI following the Naturgy React standards defined in the Copilot Space "React-Standards", and end with a short runbook to launch and test end-to-end.
 
 ## Specs (SSOT)
-- Data/business SSOT (repo):
-  - `_data/specs/csv-spec.txt`
-  - `_data/specs/logic-spec.txt`
 - UI standards SSOT (Space):
   - GitHub Copilot Space: **"React-Standards"** (Naturgy)
 - UI standards fallback (repo, must match the Space):
