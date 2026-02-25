@@ -14,7 +14,6 @@ import {
   IconButton,
   LinearProgress,
   Paper,
-  Snackbar,
   Table,
   TableBody,
   TableCell,
@@ -34,6 +33,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { billingApi } from '../api';
 import type { Invoice, BillingResult } from '../../../shared/types';
+import PageHeader from '../../../shared/ui/PageHeader';
+import FeedbackSnackbar from '../../../shared/ui/FeedbackSnackbar';
 
 export default function BillingPage() {
   const [period, setPeriod] = useState('');
@@ -192,9 +193,9 @@ export default function BillingPage() {
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ mb: 3 }}>Facturación</Typography>
+      <PageHeader title="Facturación" />
 
-      {/* Run billing */}
+      {/* Run billing panel */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>Ejecutar Facturación</Typography>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -249,7 +250,7 @@ export default function BillingPage() {
         )}
       </Paper>
 
-      {/* Invoice list */}
+      {/* Invoice list panel */}
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>Facturas</Typography>
 
@@ -283,6 +284,7 @@ export default function BillingPage() {
             {invoiceError}
           </Alert>
         )}
+
         <DataGrid
           rows={invoices}
           columns={columns}
@@ -372,9 +374,8 @@ export default function BillingPage() {
         </DialogContent>
       </Dialog>
 
-      <Snackbar open={!!success} autoHideDuration={4000} onClose={() => setSuccess(null)}>
-        <Alert severity="success" onClose={() => setSuccess(null)}>{success}</Alert>
-      </Snackbar>
+      <FeedbackSnackbar message={success} onClose={() => setSuccess(null)} autoHideDuration={4000} />
     </Box>
   );
 }
+

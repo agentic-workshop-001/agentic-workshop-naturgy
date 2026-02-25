@@ -5,6 +5,7 @@ import {
   AppBar,
   Box,
   Container,
+  Divider,
   Drawer,
   List,
   ListItem,
@@ -25,6 +26,7 @@ import TransformIcon from '@mui/icons-material/Transform';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import PercentIcon from '@mui/icons-material/Percent';
 import MenuIcon from '@mui/icons-material/Menu';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 
 const DRAWER_WIDTH = 240;
 
@@ -49,13 +51,34 @@ export default function Layout({ children }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const drawer = (
-    <Box>
-      <Toolbar>
-        <Typography variant="h6" fontWeight="bold" color="primary">
-          🔥 Naturgy Gas
-        </Typography>
-      </Toolbar>
-      <List>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Brand header */}
+      <Box
+        sx={{
+          px: 2,
+          py: 2.5,
+          bgcolor: 'primary.main',
+          color: 'primary.contrastText',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
+      >
+        <LocalFireDepartmentIcon sx={{ color: 'secondary.main' }} />
+        <Box>
+          <Typography variant="h6" fontWeight="bold" lineHeight={1.2}>
+            Naturgy Gas
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.75 }}>
+            Sistema de Facturación
+          </Typography>
+        </Box>
+      </Box>
+
+      <Divider />
+
+      {/* Navigation */}
+      <List sx={{ pt: 1, flexGrow: 1 }}>
         {navItems.map((item) => (
           <ListItem key={item.path} disablePadding>
             <ListItemButton
@@ -64,28 +87,45 @@ export default function Layout({ children }: LayoutProps) {
               selected={location.pathname === item.path}
               onClick={() => setMobileOpen(false)}
               sx={{
+                mx: 1,
+                my: 0.25,
+                borderRadius: 1,
                 '&.Mui-selected': {
                   bgcolor: 'primary.main',
-                  color: 'white',
-                  '& .MuiListItemIcon-root': { color: 'white' },
+                  color: 'primary.contrastText',
+                  '& .MuiListItemIcon-root': { color: 'primary.contrastText' },
                   '&:hover': { bgcolor: 'primary.dark' },
+                },
+                '&:not(.Mui-selected):hover': {
+                  bgcolor: 'action.hover',
                 },
               }}
             >
               <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} />
+              <ListItemText
+                primary={item.label}
+                primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }}
+              />
             </ListItemButton>
           </ListItem>
         ))}
       </List>
+
+      <Divider />
+      <Box sx={{ px: 2, py: 1.5 }}>
+        <Typography variant="caption" color="text.secondary">
+          Workshop v1.0
+        </Typography>
+      </Box>
     </Box>
   );
 
   return (
     <Box sx={{ display: 'flex' }}>
+      {/* Mobile AppBar */}
       <AppBar
         position="fixed"
-        sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, display: { md: 'none' } }}
+        sx={{ zIndex: (t) => t.zIndex.drawer + 1, display: { md: 'none' } }}
       >
         <Toolbar>
           <IconButton
@@ -97,11 +137,14 @@ export default function Layout({ children }: LayoutProps) {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6">Naturgy Gas</Typography>
+          <LocalFireDepartmentIcon sx={{ mr: 1, color: 'secondary.main' }} />
+          <Typography variant="h6" fontWeight="bold">
+            Naturgy Gas
+          </Typography>
         </Toolbar>
       </AppBar>
 
-      {/* Desktop drawer */}
+      {/* Desktop drawer (permanent) */}
       {!isMobile && (
         <Drawer
           variant="permanent"
@@ -118,7 +161,7 @@ export default function Layout({ children }: LayoutProps) {
         </Drawer>
       )}
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer (temporary) */}
       {isMobile && (
         <Drawer
           variant="temporary"
@@ -132,6 +175,7 @@ export default function Layout({ children }: LayoutProps) {
         </Drawer>
       )}
 
+      {/* Main content */}
       <Box
         component="main"
         sx={{
@@ -149,3 +193,4 @@ export default function Layout({ children }: LayoutProps) {
     </Box>
   );
 }
+

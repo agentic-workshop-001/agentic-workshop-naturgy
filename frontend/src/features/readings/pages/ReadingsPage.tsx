@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -14,9 +15,7 @@ import {
   LinearProgress,
   MenuItem,
   Select,
-  Snackbar,
   TextField,
-  Typography,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -26,6 +25,8 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import { readingsApi } from '../api';
 import { validateGasReading, formatErrorMessage } from '../validators';
 import type { GasReading } from '../../../shared/types';
+import PageHeader from '../../../shared/ui/PageHeader';
+import FeedbackSnackbar from '../../../shared/ui/FeedbackSnackbar';
 
 const emptyForm: GasReading = { cups: '', fecha: '', lecturaM3: 0, tipo: 'REAL' };
 
@@ -73,10 +74,9 @@ export default function ReadingsPage() {
     if (!validate()) return;
     setSaving(true);
     try {
-      // Prepare payload: ensure fecha is in ISO format YYYY-MM-DD
       const payload: GasReading = {
         cups: form.cups.trim(),
-        fecha: form.fecha, // Should already be YYYY-MM-DD from date input
+        fecha: form.fecha,
         lecturaM3: form.lecturaM3,
         tipo: form.tipo,
       };
@@ -88,7 +88,6 @@ export default function ReadingsPage() {
     } catch (e: unknown) {
       const errorMsg = formatErrorMessage(e);
       setError(errorMsg);
-      // Also show in form errors if it's a validation error from backend
       if (
         errorMsg.toLowerCase().includes('cups') ||
         errorMsg.toLowerCase().includes('fecha') ||
@@ -143,12 +142,11 @@ export default function ReadingsPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">Lecturas de Gas</Typography>
+      <PageHeader title="Lecturas de Gas">
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
           Nueva Lectura
         </Button>
-      </Box>
+      </PageHeader>
 
       {/* Filters */}
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
@@ -165,7 +163,7 @@ export default function ReadingsPage() {
           type="date"
           value={filterDateFrom}
           onChange={(e) => setFilterDateFrom(e.target.value)}
-          InputLabelProps={{ shrink: true }}
+          slotProps={{ inputLabel: { shrink: true } }}
           sx={{ minWidth: 180 }}
         />
         <TextField
@@ -174,7 +172,7 @@ export default function ReadingsPage() {
           type="date"
           value={filterDateTo}
           onChange={(e) => setFilterDateTo(e.target.value)}
-          InputLabelProps={{ shrink: true }}
+          slotProps={{ inputLabel: { shrink: true } }}
           sx={{ minWidth: 180 }}
         />
         <Button variant="outlined" startIcon={<FilterListIcon />} onClick={applyFilters}>
@@ -183,7 +181,12 @@ export default function ReadingsPage() {
       </Box>
 
       {loading && <LinearProgress sx={{ mb: 1 }} />}
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <DataGrid
         rows={filteredRows}
         columns={columns}
@@ -216,7 +219,7 @@ export default function ReadingsPage() {
             helperText={formErrors.fecha}
             fullWidth
             margin="normal"
-            InputLabelProps={{ shrink: true }}
+            slotProps={{ inputLabel: { shrink: true } }}
             required
           />
           <TextField
@@ -228,7 +231,7 @@ export default function ReadingsPage() {
             helperText={formErrors.lecturaM3}
             fullWidth
             margin="normal"
-            inputProps={{ min: 0, step: 0.001 }}
+            slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
             required
           />
           <FormControl fullWidth margin="normal">
@@ -247,15 +250,19 @@ export default function ReadingsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={saving}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
             {saving ? 'Guardando…' : 'Guardar'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={!!success} autoHideDuration={3000} onClose={() => setSuccess(null)}>
-        <Alert severity="success" onClose={() => setSuccess(null)}>{success}</Alert>
-      </Snackbar>
+      <FeedbackSnackbar message={success} onClose={() => setSuccess(null)} />
     </Box>
   );
 }
+
