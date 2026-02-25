@@ -1,27 +1,40 @@
 # Clarifications - DB Scaffold + API Business Layer
 
 # ============================================================
-# HANDOFF — db-scaffold sprint complete
+# HANDOFF — backend-scaffold sprint complete
 # ============================================================
 
 ## Done:
-- Spring Boot 3.2.5 / Java 17 project created under `backend/`
-- JPA entities: SupplyPoint, GasReading, GasTariff, GasConversionFactor, TaxConfig, Invoice, InvoiceLine
-- Spring Data repositories for all entities (7 repos)
-- SeedService: idempotent CSV import (dual-path A→B resolution, invalid-date skip, missing-file warn)
-- Canonical CSV seed files created under `_data/db/samples/gas/` (dates fixed: 2026-02-29 → 2026-02-28)
-- H2 in-memory config with NON_KEYWORDS=VALUE
-- Smoke test: 6/6 passing — supply_points=3, gas_tariffs=3, conversion_factors=4, tax_configs=1, gas_readings=6
+- REST CRUD endpoints at `/api/gas/` for all master entities:
+  - `/api/gas/supply-points` (GET list, GET/:cups, POST, PUT/:cups, DELETE/:cups)
+  - `/api/gas/tariffs` (GET list, GET/:id, POST, PUT/:id, DELETE/:id)
+  - `/api/gas/conversion-factors` (GET list, GET/:id, POST, PUT/:id, DELETE/:id)
+  - `/api/gas/taxes` (GET list, GET/:id, POST, PUT/:id, DELETE/:id)
+  - `/api/gas/readings` (GET list?cups=, GET/:cups/:fecha, POST, DELETE/:cups/:fecha, POST /import multipart CSV)
+  - `/api/gas/invoices` (GET list?cups=&period=, GET/:id, DELETE/:id, GET/:id/pdf)
+  - `/api/gas/billing/run` (POST ?period=YYYY-MM)
+- BillingService: m³→kWh→costs→IVA→Invoice+Lines per logic-spec
+- InvoicePdfService: single-page PDF via Apache PDFBox 3.0.2
+- Global exception handler: 400/404/409 JSON errors
+- Invoice number format: GAS-{YYYYMM}-{CUPS}-{seq}
+- Billing idempotent: second run for same (cups, period) skips existing invoices
+- Integration tests: seed→billing→invoice→PDF all passing (10/10 tests green)
 
-## Next (backend-scaffold):
-- REST CRUD endpoints (`/api/gas/...`) for all master entities
-- Billing engine: m³ → kWh → costs → IVA → Invoice + InvoiceLines (per logic-spec)
-- Invoice list/detail/PDF endpoints
-- H2 console reachable at http://localhost:8080/h2-console
+## Next (frontend-scaffold):
+- React/Vite frontend
+- CRUD screens for: supply points, readings, tariffs, conversion factors, IVA
+- Billing execution screen (enter YYYY-MM, show results)
+- Invoice list/detail + PDF download button
 
 ## Quick verify:
-  cd backend && mvn test          # smoke test must pass green
-  cd backend && mvn spring-boot:run   # app starts; H2 console at /h2-console
+  cd backend && mvn test          # 10/10 tests green
+  cd backend && mvn spring-boot:run   # app starts on :8080
+  # Run billing: POST http://localhost:8080/api/gas/billing/run?period=2026-02
+  # List invoices: GET http://localhost:8080/api/gas/invoices
+  # Download PDF: GET http://localhost:8080/api/gas/invoices/1/pdf
+
+
+
 
 
 
