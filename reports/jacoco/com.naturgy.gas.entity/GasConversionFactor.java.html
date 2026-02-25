@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GasConversionFactor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gas-workshop</a> &gt; <a href="index.source.html" class="el_package">com.naturgy.gas.entity</a> &gt; <span class="el_source">GasConversionFactor.java</span></div><h1>GasConversionFactor.java</h1><pre class="source lang-java linenums">package com.naturgy.gas.entity;
+
+import jakarta.persistence.*;
+import java.math.BigDecimal;
+
+@Entity
+@Table(name = &quot;gas_conversion_factor&quot;,
+       uniqueConstraints = @UniqueConstraint(columnNames = {&quot;zona&quot;, &quot;mes&quot;}))
+public class GasConversionFactor {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = &quot;zona&quot;, nullable = false)
+    private String zona;
+
+    @Column(name = &quot;mes&quot;, nullable = false)
+    private String mes;
+
+    @Column(name = &quot;coef_conv&quot;, nullable = false, precision = 10, scale = 6)
+    private BigDecimal coefConv;
+
+    @Column(name = &quot;pcs_kwh_m3&quot;, nullable = false, precision = 10, scale = 6)
+    private BigDecimal pcsKwhM3;
+
+<span class="fc" id="L27">    public GasConversionFactor() {}</span>
+
+<span class="fc" id="L29">    public GasConversionFactor(String zona, String mes, BigDecimal coefConv, BigDecimal pcsKwhM3) {</span>
+<span class="fc" id="L30">        this.zona = zona;</span>
+<span class="fc" id="L31">        this.mes = mes;</span>
+<span class="fc" id="L32">        this.coefConv = coefConv;</span>
+<span class="fc" id="L33">        this.pcsKwhM3 = pcsKwhM3;</span>
+<span class="fc" id="L34">    }</span>
+
+<span class="nc" id="L36">    public Long getId() { return id; }</span>
+<span class="nc" id="L37">    public String getZona() { return zona; }</span>
+<span class="nc" id="L38">    public void setZona(String zona) { this.zona = zona; }</span>
+<span class="nc" id="L39">    public String getMes() { return mes; }</span>
+<span class="nc" id="L40">    public void setMes(String mes) { this.mes = mes; }</span>
+<span class="fc" id="L41">    public BigDecimal getCoefConv() { return coefConv; }</span>
+<span class="nc" id="L42">    public void setCoefConv(BigDecimal coefConv) { this.coefConv = coefConv; }</span>
+<span class="fc" id="L43">    public BigDecimal getPcsKwhM3() { return pcsKwhM3; }</span>
+<span class="nc" id="L44">    public void setPcsKwhM3(BigDecimal pcsKwhM3) { this.pcsKwhM3 = pcsKwhM3; }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

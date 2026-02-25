@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TaxConfigController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gas-workshop</a> &gt; <a href="index.source.html" class="el_package">com.naturgy.gas.controller</a> &gt; <span class="el_source">TaxConfigController.java</span></div><h1>TaxConfigController.java</h1><pre class="source lang-java linenums">package com.naturgy.gas.controller;
+
+import com.naturgy.gas.entity.TaxConfig;
+import com.naturgy.gas.repository.TaxConfigRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+
+@RestController
+@RequestMapping(&quot;/api/gas/taxes&quot;)
+public class TaxConfigController {
+
+    private final TaxConfigRepository repo;
+
+<span class="fc" id="L18">    public TaxConfigController(TaxConfigRepository repo) {</span>
+<span class="fc" id="L19">        this.repo = repo;</span>
+<span class="fc" id="L20">    }</span>
+
+    @GetMapping
+    public List&lt;TaxConfig&gt; getAll() {
+<span class="nc" id="L24">        return repo.findAll();</span>
+    }
+
+    @GetMapping(&quot;/{id}&quot;)
+    public TaxConfig getById(@PathVariable Long id) {
+<span class="nc" id="L29">        return repo.findById(id)</span>
+<span class="nc" id="L30">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND,</span>
+                        &quot;Tax config not found: &quot; + id));
+    }
+
+    @PostMapping
+    public ResponseEntity&lt;TaxConfig&gt; create(@RequestBody TaxConfig tax) {
+<span class="nc bnc" id="L36" title="All 4 branches missed.">        if (tax.getTaxCode() == null || tax.getTaxCode().isBlank()) {</span>
+<span class="nc" id="L37">            throw new IllegalArgumentException(&quot;taxCode must not be blank&quot;);</span>
+        }
+<span class="nc bnc" id="L39" title="All 2 branches missed.">        if (tax.getVigenciaDesde() != null &amp;&amp;</span>
+<span class="nc bnc" id="L40" title="All 2 branches missed.">                repo.existsByTaxCodeAndVigenciaDesde(tax.getTaxCode(), tax.getVigenciaDesde())) {</span>
+<span class="nc" id="L41">            throw new ResponseStatusException(HttpStatus.CONFLICT,</span>
+<span class="nc" id="L42">                    &quot;Tax config already exists: &quot; + tax.getTaxCode() + &quot; / &quot; + tax.getVigenciaDesde());</span>
+        }
+<span class="nc" id="L44">        return ResponseEntity.status(HttpStatus.CREATED).body(repo.save(tax));</span>
+    }
+
+    @PutMapping(&quot;/{id}&quot;)
+    public TaxConfig update(@PathVariable Long id, @RequestBody TaxConfig tax) {
+<span class="nc" id="L49">        TaxConfig existing = repo.findById(id)</span>
+<span class="nc" id="L50">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND,</span>
+                        &quot;Tax config not found: &quot; + id));
+<span class="nc" id="L52">        existing.setTaxCode(tax.getTaxCode());</span>
+<span class="nc" id="L53">        existing.setTaxRate(tax.getTaxRate());</span>
+<span class="nc" id="L54">        existing.setVigenciaDesde(tax.getVigenciaDesde());</span>
+<span class="nc" id="L55">        return repo.save(existing);</span>
+    }
+
+    @DeleteMapping(&quot;/{id}&quot;)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id) {
+<span class="nc bnc" id="L61" title="All 2 branches missed.">        if (!repo.existsById(id)) {</span>
+<span class="nc" id="L62">            throw new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Tax config not found: &quot; + id);</span>
+        }
+<span class="nc" id="L64">        repo.deleteById(id);</span>
+<span class="nc" id="L65">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

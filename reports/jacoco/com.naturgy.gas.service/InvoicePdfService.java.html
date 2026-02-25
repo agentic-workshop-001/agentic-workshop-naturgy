@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InvoicePdfService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gas-workshop</a> &gt; <a href="index.source.html" class="el_package">com.naturgy.gas.service</a> &gt; <span class="el_source">InvoicePdfService.java</span></div><h1>InvoicePdfService.java</h1><pre class="source lang-java linenums">package com.naturgy.gas.service;
+
+import com.naturgy.gas.entity.Invoice;
+import com.naturgy.gas.entity.InvoiceLine;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.springframework.stereotype.Service;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+
+/**
+ * Generates a simple single-page PDF invoice using PDFBox 3.x.
+ */
+@Service
+<span class="fc" id="L20">public class InvoicePdfService {</span>
+
+    public byte[] generatePdf(Invoice invoice) {
+<span class="fc" id="L23">        try (PDDocument doc = new PDDocument()) {</span>
+<span class="fc" id="L24">            PDPage page = new PDPage(PDRectangle.A4);</span>
+<span class="fc" id="L25">            doc.addPage(page);</span>
+
+<span class="fc" id="L27">            PDType1Font fontBold    = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);</span>
+<span class="fc" id="L28">            PDType1Font fontRegular = new PDType1Font(Standard14Fonts.FontName.HELVETICA);</span>
+
+<span class="fc" id="L30">            try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {</span>
+<span class="fc" id="L31">                float margin = 50f;</span>
+<span class="fc" id="L32">                float pageWidth = page.getMediaBox().getWidth();</span>
+<span class="fc" id="L33">                float y = page.getMediaBox().getHeight() - margin;</span>
+
+                // --- Header ---
+<span class="fc" id="L36">                cs.beginText();</span>
+<span class="fc" id="L37">                cs.setFont(fontBold, 16);</span>
+<span class="fc" id="L38">                cs.newLineAtOffset(margin, y);</span>
+<span class="fc" id="L39">                cs.showText(&quot;FACTURA GAS&quot;);</span>
+<span class="fc" id="L40">                cs.endText();</span>
+<span class="fc" id="L41">                y -= 20;</span>
+
+<span class="fc" id="L43">                cs.beginText();</span>
+<span class="fc" id="L44">                cs.setFont(fontRegular, 10);</span>
+<span class="fc" id="L45">                cs.newLineAtOffset(margin, y);</span>
+<span class="fc" id="L46">                cs.showText(&quot;N. Factura: &quot; + invoice.getNumeroFactura());</span>
+<span class="fc" id="L47">                cs.endText();</span>
+<span class="fc" id="L48">                y -= 14;</span>
+
+<span class="fc" id="L50">                cs.beginText();</span>
+<span class="fc" id="L51">                cs.setFont(fontRegular, 10);</span>
+<span class="fc" id="L52">                cs.newLineAtOffset(margin, y);</span>
+<span class="fc" id="L53">                cs.showText(&quot;CUPS: &quot; + invoice.getCups());</span>
+<span class="fc" id="L54">                cs.endText();</span>
+<span class="fc" id="L55">                y -= 14;</span>
+
+<span class="fc" id="L57">                cs.beginText();</span>
+<span class="fc" id="L58">                cs.setFont(fontRegular, 10);</span>
+<span class="fc" id="L59">                cs.newLineAtOffset(margin, y);</span>
+<span class="fc" id="L60">                cs.showText(&quot;Periodo: &quot; + invoice.getPeriodoInicio() + &quot; / &quot; + invoice.getPeriodoFin());</span>
+<span class="fc" id="L61">                cs.endText();</span>
+<span class="fc" id="L62">                y -= 14;</span>
+
+<span class="fc" id="L64">                cs.beginText();</span>
+<span class="fc" id="L65">                cs.setFont(fontRegular, 10);</span>
+<span class="fc" id="L66">                cs.newLineAtOffset(margin, y);</span>
+<span class="fc" id="L67">                cs.showText(&quot;Fecha emision: &quot; + invoice.getFechaEmision());</span>
+<span class="fc" id="L68">                cs.endText();</span>
+<span class="fc" id="L69">                y -= 24;</span>
+
+                // --- Lines header ---
+<span class="fc" id="L72">                drawLine(cs, margin, pageWidth - margin, y);</span>
+<span class="fc" id="L73">                y -= 14;</span>
+
+<span class="fc" id="L75">                cs.beginText();</span>
+<span class="fc" id="L76">                cs.setFont(fontBold, 10);</span>
+<span class="fc" id="L77">                cs.newLineAtOffset(margin, y);</span>
+<span class="fc" id="L78">                cs.showText(String.format(&quot;%-25s %10s %14s %12s&quot;, &quot;Concepto&quot;, &quot;Cantidad&quot;, &quot;Precio unit.&quot;, &quot;Importe&quot;));</span>
+<span class="fc" id="L79">                cs.endText();</span>
+<span class="fc" id="L80">                y -= 12;</span>
+<span class="fc" id="L81">                drawLine(cs, margin, pageWidth - margin, y);</span>
+<span class="fc" id="L82">                y -= 14;</span>
+
+                // --- Invoice lines ---
+<span class="fc bfc" id="L85" title="All 2 branches covered.">                for (InvoiceLine line : invoice.getLines()) {</span>
+<span class="fc" id="L86">                    String desc = safe(line.getDescripcion());</span>
+<span class="fc" id="L87">                    String qty  = line.getCantidad().toPlainString();</span>
+<span class="fc" id="L88">                    String preu = line.getPrecioUnitario().toPlainString();</span>
+<span class="fc" id="L89">                    String imp  = line.getImporte().toPlainString();</span>
+
+<span class="fc" id="L91">                    cs.beginText();</span>
+<span class="fc" id="L92">                    cs.setFont(fontRegular, 9);</span>
+<span class="fc" id="L93">                    cs.newLineAtOffset(margin, y);</span>
+<span class="fc" id="L94">                    cs.showText(String.format(&quot;%-25s %10s %14s %12s&quot;, trunc(desc, 25), trunc(qty, 10), trunc(preu, 14), trunc(imp, 12)));</span>
+<span class="fc" id="L95">                    cs.endText();</span>
+<span class="fc" id="L96">                    y -= 14;</span>
+<span class="fc" id="L97">                }</span>
+
+<span class="fc" id="L99">                y -= 10;</span>
+<span class="fc" id="L100">                drawLine(cs, margin, pageWidth - margin, y);</span>
+<span class="fc" id="L101">                y -= 16;</span>
+
+                // --- Totals ---
+<span class="fc" id="L104">                printTotalRow(cs, fontBold, fontRegular, margin, y, &quot;Base imponible:&quot;, invoice.getBase().toPlainString());</span>
+<span class="fc" id="L105">                y -= 14;</span>
+<span class="fc" id="L106">                printTotalRow(cs, fontBold, fontRegular, margin, y, &quot;IVA:&quot;, invoice.getImpuestos().toPlainString());</span>
+<span class="fc" id="L107">                y -= 14;</span>
+<span class="fc" id="L108">                printTotalRow(cs, fontBold, fontBold, margin, y, &quot;TOTAL:&quot;, invoice.getTotal().toPlainString() + &quot; EUR&quot;);</span>
+            }
+
+<span class="fc" id="L111">            ByteArrayOutputStream baos = new ByteArrayOutputStream();</span>
+<span class="fc" id="L112">            doc.save(baos);</span>
+<span class="fc" id="L113">            return baos.toByteArray();</span>
+<span class="nc" id="L114">        } catch (IOException e) {</span>
+<span class="nc" id="L115">            throw new RuntimeException(&quot;Error generating PDF for invoice &quot; + invoice.getNumeroFactura(), e);</span>
+        }
+    }
+
+    private void drawLine(PDPageContentStream cs, float x1, float x2, float y) throws IOException {
+<span class="fc" id="L120">        cs.moveTo(x1, y);</span>
+<span class="fc" id="L121">        cs.lineTo(x2, y);</span>
+<span class="fc" id="L122">        cs.stroke();</span>
+<span class="fc" id="L123">    }</span>
+
+    private void printTotalRow(PDPageContentStream cs, PDType1Font labelFont, PDType1Font valueFont,
+                                float margin, float y, String label, String value) throws IOException {
+<span class="fc" id="L127">        cs.beginText();</span>
+<span class="fc" id="L128">        cs.setFont(labelFont, 10);</span>
+<span class="fc" id="L129">        cs.newLineAtOffset(margin + 250, y);</span>
+<span class="fc" id="L130">        cs.showText(label);</span>
+<span class="fc" id="L131">        cs.endText();</span>
+
+<span class="fc" id="L133">        cs.beginText();</span>
+<span class="fc" id="L134">        cs.setFont(valueFont, 10);</span>
+<span class="fc" id="L135">        cs.newLineAtOffset(margin + 380, y);</span>
+<span class="fc" id="L136">        cs.showText(value);</span>
+<span class="fc" id="L137">        cs.endText();</span>
+<span class="fc" id="L138">    }</span>
+
+    /** Replace non-Latin-1 chars to avoid PDFBox Type1 font encoding issues. */
+    private String safe(String s) {
+<span class="pc bpc" id="L142" title="1 of 2 branches missed.">        if (s == null) return &quot;&quot;;</span>
+<span class="fc" id="L143">        return s.replace(&quot;\u00e9&quot;, &quot;e&quot;)  // é -&gt; e</span>
+<span class="fc" id="L144">                .replace(&quot;\u00f3&quot;, &quot;o&quot;)  // ó -&gt; o</span>
+<span class="fc" id="L145">                .replace(&quot;\u00ed&quot;, &quot;i&quot;)  // í -&gt; i</span>
+<span class="fc" id="L146">                .replace(&quot;\u00fa&quot;, &quot;u&quot;)  // ú -&gt; u</span>
+<span class="fc" id="L147">                .replace(&quot;\u00e1&quot;, &quot;a&quot;)  // á -&gt; a</span>
+<span class="fc" id="L148">                .replace(&quot;\u00f1&quot;, &quot;n&quot;); // ñ -&gt; n</span>
+    }
+
+    private String trunc(String s, int max) {
+<span class="pc bpc" id="L152" title="1 of 2 branches missed.">        if (s == null) return &quot;&quot;;</span>
+<span class="pc bpc" id="L153" title="1 of 2 branches missed.">        return s.length() &gt; max ? s.substring(0, max) : s;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

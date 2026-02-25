@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Reports Dashboard - Naturgy Gas Workshop</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: rgba(255, 255, 255, 0.98);
+            padding: 50px 40px;
+            border-radius: 12px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            border-top: 4px solid #667eea;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 2.8em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+
+        .timestamp {
+            color: #999;
+            font-size: 0.95em;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .summary {
+            background: rgba(255, 255, 255, 0.98);
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .summary h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .summary-item {
+            padding: 15px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+        }
+
+        .summary-item.pass {
+            border-left-color: #28a745;
+        }
+
+        .summary-item.warn {
+            border-left-color: #ffc107;
+        }
+
+        .summary-item.fail {
+            border-left-color: #dc3545;
+        }
+
+        .summary-item-label {
+            display: block;
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .summary-item-value {
+            display: block;
+            color: #333;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .reports-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .report-card {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 12px;
+            padding: 35px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border-top: 4px solid #667eea;
+        }
+
+        .report-card:hover:not(.disabled) {
+            transform: translateY(-8px);
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+        }
+
+        .report-card.disabled {
+            opacity: 0.65;
+        }
+
+        .report-card.backend {
+            border-top-color: #667eea;
+        }
+
+        .report-card.frontend {
+            border-top-color: #764ba2;
+        }
+
+        .report-card.coverage {
+            border-top-color: #28a745;
+        }
+
+        .report-card h2 {
+            color: #333;
+            font-size: 1.6em;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .icon {
+            font-size: 1.8em;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+
+        .status-badge.available {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.unavailable {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .report-details {
+            color: #666;
+            font-size: 0.95em;
+            line-height: 1.6;
+            margin: 15px 0 20px;
+            min-height: 60px;
+        }
+
+        .report-link {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 28px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            width: 100%;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            font-size: 1em;
+        }
+
+        .report-link:hover:not(.disabled) {
+            opacity: 0.9;
+            transform: scale(1.02);
+        }
+
+        .report-link.disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .metrics {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .metric-row:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-weight: 500;
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .footer {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.85);
+            margin-top: 40px;
+            font-size: 0.95em;
+            padding: 20px;
+        }
+
+        .footer a {
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .section-title {
+            color: white;
+            font-size: 1.3em;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            flex: 1;
+            min-width: 150px;
+            background: rgba(255, 255, 255, 0.98);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin: 0 4px;
+        }
+
+        .badge.pass {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .badge.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Test Reports Dashboard</h1>
+            <p class="subtitle">Naturgy Gas Workshop - Unified QA Pipeline</p>
+            <p class="timestamp">Generated: 2026-02-25 20:24:57</p>
+        </header>
+
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-label">Backend Tests</div>
+                <div class="stat-number">10</div>
+                <span class="badge pass">PASSED</span>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Frontend Tests</div>
+                <div class="stat-number">12</div>
+                <span class="badge pass">PASSED</span>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Coverage</div>
+                <div class="stat-number">45.3%</div>
+                <span class="badge warning">PARTIAL</span>
+            </div>
+        </div>
+
+        <div class="summary">
+            <h2>Execution Summary</h2>
+            <div class="summary-grid">
+                <div class="summary-item pass">
+                    <span class="summary-item-label">Backend Tests</span>
+                    <span class="summary-item-value">10/10 PASSED</span>
+                </div>
+                <div class="summary-item pass">
+                    <span class="summary-item-label">Frontend Lint</span>
+                    <span class="summary-item-value">PASSED (0 errors)</span>
+                </div>
+                <div class="summary-item pass">
+                    <span class="summary-item-label">Frontend Build</span>
+                    <span class="summary-item-value">SUCCESS</span>
+                </div>
+                <div class="summary-item pass">
+                    <span class="summary-item-label">Frontend Unit Tests</span>
+                    <span class="summary-item-value">12/12 PASSED</span>
+                </div>
+                <div class="summary-item pass">
+                    <span class="summary-item-label">JaCoCo Coverage</span>
+                    <span class="summary-item-value">GENERATED</span>
+                </div>
+                <div class="summary-item pass">
+                    <span class="summary-item-label">Vitest Coverage</span>
+                    <span class="summary-item-value">GENERATED</span>
+                </div>
+            </div>
+        </div>
+
+        <p class="section-title">Test Reports & Coverage</p>
+
+        <div class="reports-grid">
+            <div class="report-card backend">
+                <h2><span class="icon">🔧</span> Backend Coverage</h2>
+                <span class="status-badge available">Available</span>
+                <div class="report-details">
+                    Spring Boot service layer with JaCoCo code coverage analysis. Includes
+                    integration tests for billing, seed data loading, and entity relationships.
+                </div>
+                <div class="metrics">
+                    <div class="metric-row">
+                        <span class="metric-label">Framework</span>
+                        <span class="metric-value">Spring Boot 3.2.5</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Tests Executed</span>
+                        <span class="metric-value">10 (4 Billing + 6 Smoke)</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Test Duration</span>
+                        <span class="metric-value">~12 seconds</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Classes Analyzed</span>
+                        <span class="metric-value">25 classes</span>
+                    </div>
+                </div>
+                <a href="jacoco/index.html" class="report-link">View JaCoCo Report</a>
+            </div>
+
+            <div class="report-card frontend">
+                <h2><span class="icon">⚛️</span> Frontend Unit Tests</h2>
+                <span class="status-badge available">Available</span>
+                <div class="report-details">
+                    Vitest runner with React Testing Library for component validation and
+                    utility function tests. Includes form validator comprehensive test coverage.
+                </div>
+                <div class="metrics">
+                    <div class="metric-row">
+                        <span class="metric-label">Framework</span>
+                        <span class="metric-value">Vitest 1.6.1 + RTL</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Tests Executed</span>
+                        <span class="metric-value">12 (11 Validators + 1 Smoke)</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Test Duration</span>
+                        <span class="metric-value">6.12 seconds</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Build Size</span>
+                        <span class="metric-value">1,064 KB (323 KB gzip)</span>
+                    </div>
+                </div>
+                <a href="vitest/index.html" class="report-link">View Coverage Report</a>
+            </div>
+
+            <div class="report-card coverage">
+                <h2><span class="icon">📊</span> Overall Metrics</h2>
+                <span class="status-badge available">Available</span>
+                <div class="report-details">
+                    Aggregate code coverage across backend (JaCoCo) and frontend (Vitest).
+                    View detailed breakdowns by module and function.
+                </div>
+                <div class="metrics">
+                    <div class="metric-row">
+                        <span class="metric-label">Backend Package Coverage</span>
+                        <span class="metric-value">25 classes analyzed</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Frontend File Coverage</span>
+                        <span class="metric-value">45.3% overall</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Critical Paths</span>
+                        <span class="metric-value">Billing, Readings, Seed</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Total Test Files</span>
+                        <span class="metric-value">4 files (2 backend + 2 frontend)</span>
+                    </div>
+                </div>
+                <a href="jacoco/index.html" class="report-link">View All Reports</a>
+            </div>
+        </div>
+
+        <p class="section-title">Quick Links & Commands</p>
+
+        <div style="background: rgba(255, 255, 255, 0.98); padding: 30px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);">
+            <h3 style="color: #333; margin-bottom: 20px;">Run Tests Locally</h3>
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 6px; font-family: 'Courier New', monospace; line-height: 2; color: #333;">
+                <strong style="color: #667eea;">Backend Tests:</strong><br>
+                <code>cd backend && mvn clean test jacoco:report</code><br>
+                <br>
+                <strong style="color: #667eea;">Frontend Tests:</strong><br>
+                <code>cd frontend && npm install --legacy-peer-deps</code><br>
+                <code>npm run lint && npm run build && npm test</code><br>
+                <br>
+                <strong style="color: #667eea;">All Tests (Automated):</strong><br>
+                <code>.\run-tests.bat</code> (Windows) or <code>./run-tests.ps1</code> (PowerShell)<br>
+            </div>
+
+            <h3 style="color: #333; margin-top: 30px; margin-bottom: 20px;">Key Test Files</h3>
+            <ul style="list-style: none; color: #666;">
+                <li style="padding: 10px 0;"><strong>Backend:</strong> backend/src/test/java/com/naturgy/gas/</li>
+                <li style="padding: 10px 0;"><strong>Frontend:</strong> frontend/src/features/readings/validators.test.ts</li>
+                <li style="padding: 10px 0;"><strong>Frontend Smoke:</strong> frontend/src/__tests__/App.test.tsx</li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>
+                Naturgy Gas Workshop • QA/CI Test Runner<br>
+                Test Execution: 2026-02-25 | Backend: 21.6s | Frontend: 6.1s | Total: ~28s<br>
+                <a href="./index.html">Refresh Dashboard</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

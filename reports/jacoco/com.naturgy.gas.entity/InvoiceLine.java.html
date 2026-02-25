@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InvoiceLine.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gas-workshop</a> &gt; <a href="index.source.html" class="el_package">com.naturgy.gas.entity</a> &gt; <span class="el_source">InvoiceLine.java</span></div><h1>InvoiceLine.java</h1><pre class="source lang-java linenums">package com.naturgy.gas.entity;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.*;
+import java.math.BigDecimal;
+
+@Entity
+@Table(name = &quot;invoice_line&quot;)
+public class InvoiceLine {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = &quot;invoice_id&quot;, nullable = false)
+    @JsonIgnore
+    private Invoice invoice;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = &quot;tipo&quot;, nullable = false)
+    private TipoLineaEnum tipo;
+
+    @Column(name = &quot;descripcion&quot;, nullable = false)
+    private String descripcion;
+
+    @Column(name = &quot;cantidad&quot;, nullable = false, precision = 14, scale = 4)
+    private BigDecimal cantidad;
+
+    @Column(name = &quot;precio_unitario&quot;, nullable = false, precision = 12, scale = 6)
+    private BigDecimal precioUnitario;
+
+    @Column(name = &quot;importe&quot;, nullable = false, precision = 12, scale = 2)
+    private BigDecimal importe;
+
+<span class="fc" id="L36">    public enum TipoLineaEnum { TERMINO_FIJO, TERMINO_VARIABLE, ALQUILER, IVA }</span>
+
+<span class="fc" id="L38">    public InvoiceLine() {}</span>
+
+    public InvoiceLine(Invoice invoice, TipoLineaEnum tipo, String descripcion,
+<span class="fc" id="L41">                       BigDecimal cantidad, BigDecimal precioUnitario, BigDecimal importe) {</span>
+<span class="fc" id="L42">        this.invoice = invoice;</span>
+<span class="fc" id="L43">        this.tipo = tipo;</span>
+<span class="fc" id="L44">        this.descripcion = descripcion;</span>
+<span class="fc" id="L45">        this.cantidad = cantidad;</span>
+<span class="fc" id="L46">        this.precioUnitario = precioUnitario;</span>
+<span class="fc" id="L47">        this.importe = importe;</span>
+<span class="fc" id="L48">    }</span>
+
+<span class="nc" id="L50">    public Long getId() { return id; }</span>
+<span class="nc" id="L51">    public Invoice getInvoice() { return invoice; }</span>
+<span class="nc" id="L52">    public void setInvoice(Invoice invoice) { this.invoice = invoice; }</span>
+<span class="nc" id="L53">    public TipoLineaEnum getTipo() { return tipo; }</span>
+<span class="nc" id="L54">    public void setTipo(TipoLineaEnum tipo) { this.tipo = tipo; }</span>
+<span class="fc" id="L55">    public String getDescripcion() { return descripcion; }</span>
+<span class="nc" id="L56">    public void setDescripcion(String descripcion) { this.descripcion = descripcion; }</span>
+<span class="fc" id="L57">    public BigDecimal getCantidad() { return cantidad; }</span>
+<span class="nc" id="L58">    public void setCantidad(BigDecimal cantidad) { this.cantidad = cantidad; }</span>
+<span class="fc" id="L59">    public BigDecimal getPrecioUnitario() { return precioUnitario; }</span>
+<span class="nc" id="L60">    public void setPrecioUnitario(BigDecimal precioUnitario) { this.precioUnitario = precioUnitario; }</span>
+<span class="fc" id="L61">    public BigDecimal getImporte() { return importe; }</span>
+<span class="nc" id="L62">    public void setImporte(BigDecimal importe) { this.importe = importe; }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BillingService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gas-workshop</a> &gt; <a href="index.source.html" class="el_package">com.naturgy.gas.service</a> &gt; <span class="el_source">BillingService.java</span></div><h1>BillingService.java</h1><pre class="source lang-java linenums">package com.naturgy.gas.service;
+
+import com.naturgy.gas.entity.*;
+import com.naturgy.gas.repository.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Core billing engine.
+ * Implements logic-spec: m³ → kWh → fixed/variable → IVA → Invoice + Lines.
+ */
+@Service
+public class BillingService {
+
+<span class="fc" id="L26">    private static final Logger log = LoggerFactory.getLogger(BillingService.class);</span>
+
+    private final SupplyPointRepository supplyPointRepo;
+    private final GasReadingRepository readingRepo;
+    private final GasTariffRepository tariffRepo;
+    private final GasConversionFactorRepository convFactorRepo;
+    private final TaxConfigRepository taxConfigRepo;
+    private final InvoiceRepository invoiceRepo;
+
+    public BillingService(SupplyPointRepository supplyPointRepo,
+                          GasReadingRepository readingRepo,
+                          GasTariffRepository tariffRepo,
+                          GasConversionFactorRepository convFactorRepo,
+                          TaxConfigRepository taxConfigRepo,
+<span class="fc" id="L40">                          InvoiceRepository invoiceRepo) {</span>
+<span class="fc" id="L41">        this.supplyPointRepo = supplyPointRepo;</span>
+<span class="fc" id="L42">        this.readingRepo = readingRepo;</span>
+<span class="fc" id="L43">        this.tariffRepo = tariffRepo;</span>
+<span class="fc" id="L44">        this.convFactorRepo = convFactorRepo;</span>
+<span class="fc" id="L45">        this.taxConfigRepo = taxConfigRepo;</span>
+<span class="fc" id="L46">        this.invoiceRepo = invoiceRepo;</span>
+<span class="fc" id="L47">    }</span>
+
+<span class="fc" id="L49">    public record BillingResult(List&lt;Invoice&gt; invoices, List&lt;String&gt; errors) {}</span>
+
+    /**
+     * Runs billing for all ACTIVO supply points for the given period YYYY-MM.
+     * Idempotent: existing invoices for the same (cups, period) are skipped.
+     */
+    @Transactional
+    public BillingResult runBillingForPeriod(String period) {
+        YearMonth ym;
+        try {
+<span class="fc" id="L59">            ym = YearMonth.parse(period);</span>
+<span class="fc" id="L60">        } catch (DateTimeParseException e) {</span>
+<span class="fc" id="L61">            throw new IllegalArgumentException(&quot;Invalid period format. Expected YYYY-MM, got: &quot; + period);</span>
+<span class="fc" id="L62">        }</span>
+
+<span class="fc" id="L64">        LocalDate periodStart = ym.atDay(1);</span>
+<span class="fc" id="L65">        LocalDate periodEnd   = ym.atEndOfMonth();</span>
+<span class="fc" id="L66">        int daysInMonth = ym.lengthOfMonth();</span>
+
+<span class="fc" id="L68">        List&lt;SupplyPoint&gt; activos = supplyPointRepo.findByEstado(SupplyPoint.EstadoEnum.ACTIVO);</span>
+<span class="fc" id="L69">        List&lt;Invoice&gt; invoices = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L70">        List&lt;String&gt; errors  = new ArrayList&lt;&gt;();</span>
+
+        // Determine invoice sequence base for this period
+<span class="fc" id="L73">        long existingCount = invoiceRepo.countByPeriodoInicio(periodStart);</span>
+<span class="fc" id="L74">        long[] seq = {existingCount + 1};</span>
+
+<span class="fc bfc" id="L76" title="All 2 branches covered.">        for (SupplyPoint sp : activos) {</span>
+<span class="fc" id="L77">            String cups = sp.getCups();</span>
+
+            // --- Skip if already billed ---
+<span class="fc bfc" id="L80" title="All 2 branches covered.">            if (invoiceRepo.findByCupsAndPeriodoInicio(cups, periodStart).isPresent()) {</span>
+<span class="fc" id="L81">                log.debug(&quot;Billing skipped (already exists): cups={} period={}&quot;, cups, period);</span>
+<span class="fc" id="L82">                continue;</span>
+            }
+
+            // --- Boundary readings ---
+<span class="fc" id="L86">            Optional&lt;GasReading&gt; inicio = readingRepo.findLastBefore(cups, periodStart);</span>
+<span class="fc" id="L87">            Optional&lt;GasReading&gt; fin    = readingRepo.findLastOnOrBefore(cups, periodEnd);</span>
+
+<span class="pc bpc" id="L89" title="2 of 4 branches missed.">            if (inicio.isEmpty() || fin.isEmpty()) {</span>
+<span class="nc" id="L90">                String err = String.format(&quot;cups=%s period=%s: missing boundary reading (inicio=%s, fin=%s)&quot;,</span>
+<span class="nc" id="L91">                        cups, period, inicio.isPresent(), fin.isPresent());</span>
+<span class="nc" id="L92">                log.warn(&quot;Billing error: {}&quot;, err);</span>
+<span class="nc" id="L93">                errors.add(err);</span>
+<span class="nc" id="L94">                continue;</span>
+            }
+
+<span class="fc" id="L97">            BigDecimal m3Inicio = inicio.get().getLecturaM3();</span>
+<span class="fc" id="L98">            BigDecimal m3Fin    = fin.get().getLecturaM3();</span>
+<span class="fc" id="L99">            BigDecimal m3Consumidos = m3Fin.subtract(m3Inicio);</span>
+
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">            if (m3Consumidos.compareTo(BigDecimal.ZERO) &lt; 0) {</span>
+<span class="nc" id="L102">                String err = String.format(&quot;cups=%s period=%s: negative consumption (%.3f)&quot;, cups, period, m3Consumidos);</span>
+<span class="nc" id="L103">                log.warn(&quot;Billing error: {}&quot;, err);</span>
+<span class="nc" id="L104">                errors.add(err);</span>
+<span class="nc" id="L105">                continue;</span>
+            }
+
+            // --- Tariff ---
+<span class="fc" id="L109">            Optional&lt;GasTariff&gt; tariffOpt = tariffRepo.findActiveForPeriod(sp.getTarifa(), periodEnd);</span>
+<span class="pc bpc" id="L110" title="1 of 2 branches missed.">            if (tariffOpt.isEmpty()) {</span>
+<span class="nc" id="L111">                String err = String.format(&quot;cups=%s period=%s: no active tariff for '%s'&quot;, cups, period, sp.getTarifa());</span>
+<span class="nc" id="L112">                log.warn(&quot;Billing error: {}&quot;, err);</span>
+<span class="nc" id="L113">                errors.add(err);</span>
+<span class="nc" id="L114">                continue;</span>
+            }
+<span class="fc" id="L116">            GasTariff tariff = tariffOpt.get();</span>
+
+            // --- Conversion factor ---
+<span class="fc" id="L119">            Optional&lt;GasConversionFactor&gt; cfOpt = convFactorRepo.findByZonaAndMes(sp.getZona(), period);</span>
+<span class="pc bpc" id="L120" title="1 of 2 branches missed.">            if (cfOpt.isEmpty()) {</span>
+<span class="nc" id="L121">                String err = String.format(&quot;cups=%s period=%s: no conversion factor for zona='%s' mes='%s'&quot;,</span>
+<span class="nc" id="L122">                        cups, period, sp.getZona(), period);</span>
+<span class="nc" id="L123">                log.warn(&quot;Billing error: {}&quot;, err);</span>
+<span class="nc" id="L124">                errors.add(err);</span>
+<span class="nc" id="L125">                continue;</span>
+            }
+<span class="fc" id="L127">            GasConversionFactor cf = cfOpt.get();</span>
+
+            // --- Tax (IVA) ---
+<span class="fc" id="L130">            Optional&lt;TaxConfig&gt; taxOpt = taxConfigRepo.findActiveForPeriod(&quot;IVA&quot;, periodEnd);</span>
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">            if (taxOpt.isEmpty()) {</span>
+<span class="nc" id="L132">                String err = String.format(&quot;cups=%s period=%s: no IVA tax configured&quot;, cups, period);</span>
+<span class="nc" id="L133">                log.warn(&quot;Billing error: {}&quot;, err);</span>
+<span class="nc" id="L134">                errors.add(err);</span>
+<span class="nc" id="L135">                continue;</span>
+            }
+<span class="fc" id="L137">            TaxConfig tax = taxOpt.get();</span>
+
+            // --- Calculations (per logic-spec) ---
+            // kwh = m3_consumidos * coef_conv * pcs_kwh_m3
+<span class="fc" id="L141">            BigDecimal kwh = m3Consumidos</span>
+<span class="fc" id="L142">                    .multiply(cf.getCoefConv())</span>
+<span class="fc" id="L143">                    .multiply(cf.getPcsKwhM3())</span>
+<span class="fc" id="L144">                    .setScale(3, RoundingMode.HALF_UP);</span>
+
+            // coste_fijo = fijo_mes_eur * (days_in_period / days_in_month)
+            // For monthly billing: effectively fijo_mes_eur itself
+<span class="fc" id="L148">            BigDecimal costeFijo = tariff.getFijoMesEur()</span>
+<span class="fc" id="L149">                    .multiply(new BigDecimal(daysInMonth))</span>
+<span class="fc" id="L150">                    .divide(new BigDecimal(daysInMonth), 2, RoundingMode.HALF_UP);</span>
+
+            // coste_variable = kwh * variable_eur_kwh
+<span class="fc" id="L153">            BigDecimal costeVariable = kwh</span>
+<span class="fc" id="L154">                    .multiply(tariff.getVariableEurKwh())</span>
+<span class="fc" id="L155">                    .setScale(2, RoundingMode.HALF_UP);</span>
+
+            // alquiler: workshop default 0.00
+<span class="fc" id="L158">            BigDecimal alquiler = BigDecimal.ZERO.setScale(2);</span>
+
+            // base = coste_fijo + coste_variable + alquiler
+<span class="fc" id="L161">            BigDecimal base = costeFijo.add(costeVariable).add(alquiler).setScale(2, RoundingMode.HALF_UP);</span>
+
+            // impuestos = base * iva_rate
+<span class="fc" id="L164">            BigDecimal impuestos = base.multiply(tax.getTaxRate()).setScale(2, RoundingMode.HALF_UP);</span>
+
+            // total = base + impuestos
+<span class="fc" id="L167">            BigDecimal total = base.add(impuestos).setScale(2, RoundingMode.HALF_UP);</span>
+
+            // --- Invoice number ---
+<span class="fc" id="L170">            String numeroFactura = String.format(&quot;GAS-%s-%s-%03d&quot;, period.replace(&quot;-&quot;, &quot;&quot;), cups, seq[0]++);</span>
+
+            // --- Build Invoice ---
+<span class="fc" id="L173">            Invoice invoice = new Invoice(numeroFactura, cups, periodStart, periodEnd,</span>
+<span class="fc" id="L174">                    base, impuestos, total, LocalDate.now());</span>
+
+            // Lines
+<span class="fc" id="L177">            invoice.getLines().add(new InvoiceLine(invoice,</span>
+                    InvoiceLine.TipoLineaEnum.TERMINO_FIJO, &quot;Término fijo&quot;,
+<span class="fc" id="L179">                    BigDecimal.ONE, tariff.getFijoMesEur(), costeFijo));</span>
+
+<span class="fc" id="L181">            invoice.getLines().add(new InvoiceLine(invoice,</span>
+                    InvoiceLine.TipoLineaEnum.TERMINO_VARIABLE, &quot;Término variable&quot;,
+<span class="fc" id="L183">                    kwh, tariff.getVariableEurKwh(), costeVariable));</span>
+
+<span class="pc bpc" id="L185" title="1 of 2 branches missed.">            if (alquiler.compareTo(BigDecimal.ZERO) &gt; 0) {</span>
+<span class="nc" id="L186">                invoice.getLines().add(new InvoiceLine(invoice,</span>
+                        InvoiceLine.TipoLineaEnum.ALQUILER, &quot;Alquiler&quot;,
+                        BigDecimal.ONE, alquiler, alquiler));
+            }
+
+<span class="fc" id="L191">            invoice.getLines().add(new InvoiceLine(invoice,</span>
+                    InvoiceLine.TipoLineaEnum.IVA, &quot;IVA&quot;,
+<span class="fc" id="L193">                    tax.getTaxRate(), base, impuestos));</span>
+
+<span class="fc" id="L195">            invoiceRepo.save(invoice);</span>
+<span class="fc" id="L196">            invoices.add(invoice);</span>
+<span class="fc" id="L197">            log.info(&quot;Invoice created: {} cups={} total={}&quot;, numeroFactura, cups, total);</span>
+<span class="fc" id="L198">        }</span>
+
+<span class="fc" id="L200">        return new BillingResult(invoices, errors);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

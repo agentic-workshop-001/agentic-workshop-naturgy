@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GasReadingController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gas-workshop</a> &gt; <a href="index.source.html" class="el_package">com.naturgy.gas.controller</a> &gt; <span class="el_source">GasReadingController.java</span></div><h1>GasReadingController.java</h1><pre class="source lang-java linenums">package com.naturgy.gas.controller;
+
+import com.naturgy.gas.entity.GasReading;
+import com.naturgy.gas.repository.GasReadingRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping(&quot;/api/gas/readings&quot;)
+public class GasReadingController {
+
+    private final GasReadingRepository repo;
+
+<span class="fc" id="L26">    public GasReadingController(GasReadingRepository repo) {</span>
+<span class="fc" id="L27">        this.repo = repo;</span>
+<span class="fc" id="L28">    }</span>
+
+    @GetMapping
+    public List&lt;GasReading&gt; getAll(
+            @RequestParam(required = false) String cups) {
+<span class="nc bnc" id="L33" title="All 2 branches missed.">        if (cups != null) {</span>
+<span class="nc" id="L34">            return repo.findByIdCupsOrderByIdFechaAsc(cups);</span>
+        }
+<span class="nc" id="L36">        return repo.findAll();</span>
+    }
+
+    @GetMapping(&quot;/{cups}/{fecha}&quot;)
+    public GasReading getById(@PathVariable String cups, @PathVariable String fecha) {
+<span class="nc" id="L41">        LocalDate date = parseDate(fecha);</span>
+<span class="nc" id="L42">        GasReading.GasReadingId id = new GasReading.GasReadingId(cups, date);</span>
+<span class="nc" id="L43">        return repo.findById(id)</span>
+<span class="nc" id="L44">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND,</span>
+                        &quot;Reading not found: &quot; + cups + &quot;/&quot; + fecha));
+    }
+
+    @PostMapping
+    public ResponseEntity&lt;GasReading&gt; create(@RequestBody CreateReadingRequest request) {
+        // Validate required fields
+<span class="nc bnc" id="L51" title="All 4 branches missed.">        if (request.getCups() == null || request.getCups().trim().isEmpty()) {</span>
+<span class="nc" id="L52">            throw new IllegalArgumentException(&quot;cups es obligatorio&quot;);</span>
+        }
+<span class="nc bnc" id="L54" title="All 4 branches missed.">        if (request.getFecha() == null || request.getFecha().trim().isEmpty()) {</span>
+<span class="nc" id="L55">            throw new IllegalArgumentException(&quot;fecha es obligatoria&quot;);</span>
+        }
+<span class="nc bnc" id="L57" title="All 2 branches missed.">        if (request.getLecturaM3() == null) {</span>
+<span class="nc" id="L58">            throw new IllegalArgumentException(&quot;lecturaM3 es obligatoria&quot;);</span>
+        }
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        if (request.getLecturaM3().compareTo(BigDecimal.ZERO) &lt; 0) {</span>
+<span class="nc" id="L61">            throw new IllegalArgumentException(&quot;lecturaM3 debe ser &gt;= 0&quot;);</span>
+        }
+<span class="nc bnc" id="L63" title="All 4 branches missed.">        if (request.getTipo() == null || request.getTipo().trim().isEmpty()) {</span>
+<span class="nc" id="L64">            throw new IllegalArgumentException(&quot;tipo es obligatorio&quot;);</span>
+        }
+
+        // Parse date
+<span class="nc" id="L68">        LocalDate fecha = parseDate(request.getFecha());</span>
+
+        // Parse tipo enum
+        GasReading.TipoEnum tipo;
+        try {
+<span class="nc" id="L73">            tipo = GasReading.TipoEnum.valueOf(request.getTipo().toUpperCase());</span>
+<span class="nc" id="L74">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L75">            throw new IllegalArgumentException(&quot;tipo debe ser REAL o ESTIMADA&quot;);</span>
+<span class="nc" id="L76">        }</span>
+
+        // Create ID and check for duplicates
+<span class="nc" id="L79">        GasReading.GasReadingId id = new GasReading.GasReadingId(request.getCups(), fecha);</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        if (repo.existsById(id)) {</span>
+<span class="nc" id="L81">            throw new ResponseStatusException(HttpStatus.CONFLICT,</span>
+<span class="nc" id="L82">                    &quot;Reading already exists: &quot; + request.getCups() + &quot;/&quot; + request.getFecha());</span>
+        }
+
+        // Create and save
+<span class="nc" id="L86">        GasReading reading = new GasReading(request.getCups(), fecha, request.getLecturaM3(), tipo);</span>
+<span class="nc" id="L87">        return ResponseEntity.status(HttpStatus.CREATED).body(repo.save(reading));</span>
+    }
+
+    @DeleteMapping(&quot;/{cups}/{fecha}&quot;)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable String cups, @PathVariable String fecha) {
+<span class="nc" id="L93">        LocalDate date = parseDate(fecha);</span>
+<span class="nc" id="L94">        GasReading.GasReadingId id = new GasReading.GasReadingId(cups, date);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (!repo.existsById(id)) {</span>
+<span class="nc" id="L96">            throw new ResponseStatusException(HttpStatus.NOT_FOUND,</span>
+                    &quot;Reading not found: &quot; + cups + &quot;/&quot; + fecha);
+        }
+<span class="nc" id="L99">        repo.deleteById(id);</span>
+<span class="nc" id="L100">    }</span>
+
+    /**
+     * CSV import endpoint. Expects multipart/form-data with field &quot;file&quot;.
+     * Returns {inserted, skipped, errors[]}.
+     */
+    @PostMapping(&quot;/import&quot;)
+    public Map&lt;String, Object&gt; importCsv(@RequestParam(&quot;file&quot;) MultipartFile file) {
+<span class="nc" id="L108">        int inserted = 0, skipped = 0;</span>
+<span class="nc" id="L109">        List&lt;String&gt; errors = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L111">        try (BufferedReader br = new BufferedReader(new InputStreamReader(file.getInputStream()))) {</span>
+<span class="nc" id="L112">            String header = br.readLine(); // skip header</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">            if (header == null) {</span>
+<span class="nc" id="L114">                return Map.of(&quot;inserted&quot;, 0, &quot;skipped&quot;, 0, &quot;errors&quot;, List.of(&quot;Empty file&quot;));</span>
+            }
+            String line;
+<span class="nc" id="L117">            int row = 1;</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">            while ((line = br.readLine()) != null) {</span>
+<span class="nc" id="L119">                row++;</span>
+<span class="nc" id="L120">                line = line.trim();</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">                if (line.isEmpty()) continue;</span>
+<span class="nc" id="L122">                String[] cols = line.split(&quot;,&quot;, -1);</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                if (cols.length &lt; 4) {</span>
+<span class="nc" id="L124">                    errors.add(&quot;Row &quot; + row + &quot;: expected 4 columns, got &quot; + cols.length);</span>
+<span class="nc" id="L125">                    continue;</span>
+                }
+<span class="nc" id="L127">                String cups = cols[0].trim();</span>
+<span class="nc" id="L128">                String fechaStr = cols[1].trim();</span>
+<span class="nc" id="L129">                String lecturaStr = cols[2].trim();</span>
+<span class="nc" id="L130">                String tipoStr = cols[3].trim();</span>
+
+                LocalDate fecha;
+<span class="nc" id="L133">                try { fecha = LocalDate.parse(fechaStr); }</span>
+<span class="nc" id="L134">                catch (DateTimeParseException e) {</span>
+<span class="nc" id="L135">                    errors.add(&quot;Row &quot; + row + &quot;: invalid date '&quot; + fechaStr + &quot;'&quot;);</span>
+<span class="nc" id="L136">                    continue;</span>
+<span class="nc" id="L137">                }</span>
+
+                BigDecimal lecturaM3;
+<span class="nc" id="L140">                try { lecturaM3 = new BigDecimal(lecturaStr); }</span>
+<span class="nc" id="L141">                catch (NumberFormatException e) {</span>
+<span class="nc" id="L142">                    errors.add(&quot;Row &quot; + row + &quot;: invalid lectura_m3 '&quot; + lecturaStr + &quot;'&quot;);</span>
+<span class="nc" id="L143">                    continue;</span>
+<span class="nc" id="L144">                }</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">                if (lecturaM3.compareTo(BigDecimal.ZERO) &lt; 0) {</span>
+<span class="nc" id="L146">                    errors.add(&quot;Row &quot; + row + &quot;: lectura_m3 &lt; 0&quot;);</span>
+<span class="nc" id="L147">                    continue;</span>
+                }
+
+                GasReading.TipoEnum tipo;
+<span class="nc" id="L151">                try { tipo = GasReading.TipoEnum.valueOf(tipoStr); }</span>
+<span class="nc" id="L152">                catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L153">                    errors.add(&quot;Row &quot; + row + &quot;: invalid tipo '&quot; + tipoStr + &quot;'&quot;);</span>
+<span class="nc" id="L154">                    continue;</span>
+<span class="nc" id="L155">                }</span>
+
+<span class="nc" id="L157">                GasReading.GasReadingId id = new GasReading.GasReadingId(cups, fecha);</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">                if (repo.existsById(id)) {</span>
+<span class="nc" id="L159">                    errors.add(&quot;Row &quot; + row + &quot;: duplicate reading &quot; + cups + &quot;/&quot; + fecha);</span>
+<span class="nc" id="L160">                    skipped++;</span>
+<span class="nc" id="L161">                    continue;</span>
+                }
+<span class="nc" id="L163">                repo.save(new GasReading(cups, fecha, lecturaM3, tipo));</span>
+<span class="nc" id="L164">                inserted++;</span>
+<span class="nc" id="L165">            }</span>
+<span class="nc" id="L166">        } catch (Exception e) {</span>
+<span class="nc" id="L167">            throw new RuntimeException(&quot;Failed to parse CSV: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L168">        }</span>
+
+<span class="nc" id="L170">        return Map.of(&quot;inserted&quot;, inserted, &quot;skipped&quot;, skipped, &quot;errors&quot;, errors);</span>
+    }
+
+    private LocalDate parseDate(String s) {
+<span class="nc" id="L174">        try { return LocalDate.parse(s); }</span>
+<span class="nc" id="L175">        catch (DateTimeParseException e) {</span>
+<span class="nc" id="L176">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;Invalid date: &quot; + s);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

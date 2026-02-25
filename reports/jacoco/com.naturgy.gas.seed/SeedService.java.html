@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SeedService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gas-workshop</a> &gt; <a href="index.source.html" class="el_package">com.naturgy.gas.seed</a> &gt; <span class="el_source">SeedService.java</span></div><h1>SeedService.java</h1><pre class="source lang-java linenums">package com.naturgy.gas.seed;
+
+import com.naturgy.gas.entity.*;
+import com.naturgy.gas.repository.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.stereotype.Component;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.Optional;
+
+/**
+ * Seeds the database from CSV files found under:
+ *   A) {dataDir}/gas/{specFileName}       (canonical per spec)
+ *   B) {dataDir}/sample_{specFileName}    (fallback for current sample files)
+ *
+ * Idempotent: re-running does not duplicate rows.
+ * Invalid dates are skipped with WARN; missing CSVs boot without error.
+ */
+@Component
+public class SeedService implements ApplicationRunner {
+
+<span class="fc" id="L33">    private static final Logger log = LoggerFactory.getLogger(SeedService.class);</span>
+
+    @Value(&quot;${gas.data.dir:_data/db/samples}&quot;)
+    private String dataDir;
+
+    private final SupplyPointRepository supplyPointRepo;
+    private final GasTariffRepository gasTariffRepo;
+    private final GasConversionFactorRepository conversionFactorRepo;
+    private final TaxConfigRepository taxConfigRepo;
+    private final GasReadingRepository gasReadingRepo;
+
+    public SeedService(SupplyPointRepository supplyPointRepo,
+                       GasTariffRepository gasTariffRepo,
+                       GasConversionFactorRepository conversionFactorRepo,
+                       TaxConfigRepository taxConfigRepo,
+<span class="fc" id="L48">                       GasReadingRepository gasReadingRepo) {</span>
+<span class="fc" id="L49">        this.supplyPointRepo = supplyPointRepo;</span>
+<span class="fc" id="L50">        this.gasTariffRepo = gasTariffRepo;</span>
+<span class="fc" id="L51">        this.conversionFactorRepo = conversionFactorRepo;</span>
+<span class="fc" id="L52">        this.taxConfigRepo = taxConfigRepo;</span>
+<span class="fc" id="L53">        this.gasReadingRepo = gasReadingRepo;</span>
+<span class="fc" id="L54">    }</span>
+
+    @Override
+    public void run(ApplicationArguments args) {
+        // Resolve dataDir to absolute path
+        // If relative and not found, try going up one directory (handles running from backend/ subdir)
+<span class="fc" id="L60">        Path dataDirPath = Paths.get(dataDir).toAbsolutePath();</span>
+        
+<span class="pc bpc" id="L62" title="1 of 2 branches missed.">        if (!Files.exists(dataDirPath)) {</span>
+            // Try parent directory (in case running from backend/ subdirectory)
+<span class="nc" id="L64">            Path parentPath = Paths.get(&quot;..&quot;, dataDir).toAbsolutePath().normalize();</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">            if (Files.exists(parentPath)) {</span>
+<span class="nc" id="L66">                dataDirPath = parentPath;</span>
+            }
+        }
+        
+<span class="fc" id="L70">        String resolvedDataDir = dataDirPath.toString();</span>
+<span class="fc" id="L71">        log.info(&quot;Seed: data directory = {} (resolved to: {})&quot;, dataDir, resolvedDataDir);</span>
+
+<span class="fc" id="L73">        seedSupplyPoints(resolvedDataDir);</span>
+<span class="fc" id="L74">        seedGasTariffs(resolvedDataDir);</span>
+<span class="fc" id="L75">        seedGasConversionFactors(resolvedDataDir);</span>
+<span class="fc" id="L76">        seedTaxes(resolvedDataDir);</span>
+<span class="fc" id="L77">        seedGasReadings(resolvedDataDir);</span>
+
+<span class="fc" id="L79">        log.info(&quot;Seed complete. supply_points={}, gas_tariffs={}, conversion_factors={}, &quot; +</span>
+                 &quot;tax_configs={}, gas_readings={}&quot;,
+<span class="fc" id="L81">                supplyPointRepo.count(),</span>
+<span class="fc" id="L82">                gasTariffRepo.count(),</span>
+<span class="fc" id="L83">                conversionFactorRepo.count(),</span>
+<span class="fc" id="L84">                taxConfigRepo.count(),</span>
+<span class="fc" id="L85">                gasReadingRepo.count());</span>
+<span class="fc" id="L86">    }</span>
+
+    // -------------------------------------------------------------------------
+    // Seeders
+    // -------------------------------------------------------------------------
+
+    private void seedSupplyPoints(String dataDir) {
+<span class="fc" id="L93">        Optional&lt;Path&gt; path = resolveCsvPath(dataDir, &quot;supply-points.csv&quot;);</span>
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">        if (path.isEmpty()) return;</span>
+
+<span class="fc" id="L96">        try (BufferedReader br = Files.newBufferedReader(path.get())) {</span>
+<span class="fc" id="L97">            String header = br.readLine(); // skip header</span>
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">            if (header == null) return;</span>
+            String line;
+<span class="fc" id="L100">            int inserted = 0, skipped = 0;</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">            while ((line = br.readLine()) != null) {</span>
+<span class="fc" id="L102">                line = line.trim();</span>
+<span class="pc bpc" id="L103" title="1 of 2 branches missed.">                if (line.isEmpty()) continue;</span>
+<span class="fc" id="L104">                String[] cols = line.split(&quot;,&quot;, -1);</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">                if (cols.length &lt; 4) {</span>
+<span class="nc" id="L106">                    log.warn(&quot;supply-points.csv: malformed row (expected 4 cols): {}&quot;, line);</span>
+<span class="nc" id="L107">                    continue;</span>
+                }
+<span class="fc" id="L109">                String cups = cols[0].trim();</span>
+<span class="fc" id="L110">                String zona = cols[1].trim();</span>
+<span class="fc" id="L111">                String tarifa = cols[2].trim();</span>
+<span class="fc" id="L112">                String estadoStr = cols[3].trim();</span>
+
+<span class="pc bpc" id="L114" title="1 of 2 branches missed.">                if (cups.isBlank()) { log.warn(&quot;supply-points: blank cups, skipping&quot;); continue; }</span>
+                SupplyPoint.EstadoEnum estado;
+<span class="fc" id="L116">                try { estado = SupplyPoint.EstadoEnum.valueOf(estadoStr); }</span>
+<span class="nc" id="L117">                catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L118">                    log.warn(&quot;supply-points: invalid estado '{}', skipping row: {}&quot;, estadoStr, line);</span>
+<span class="nc" id="L119">                    continue;</span>
+<span class="fc" id="L120">                }</span>
+
+<span class="pc bpc" id="L122" title="1 of 2 branches missed.">                if (supplyPointRepo.existsById(cups)) { skipped++; continue; }</span>
+<span class="fc" id="L123">                supplyPointRepo.save(new SupplyPoint(cups, zona, tarifa, estado));</span>
+<span class="fc" id="L124">                inserted++;</span>
+<span class="fc" id="L125">            }</span>
+<span class="fc" id="L126">            log.info(&quot;supply-points: inserted={}, skipped={}&quot;, inserted, skipped);</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L128">            throw new RuntimeException(&quot;Failed to read supply-points.csv: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L129">        }</span>
+<span class="fc" id="L130">    }</span>
+
+    private void seedGasTariffs(String dataDir) {
+<span class="fc" id="L133">        Optional&lt;Path&gt; path = resolveCsvPath(dataDir, &quot;gas-tariffs.csv&quot;);</span>
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">        if (path.isEmpty()) return;</span>
+
+<span class="fc" id="L136">        try (BufferedReader br = Files.newBufferedReader(path.get())) {</span>
+<span class="fc" id="L137">            String header = br.readLine();</span>
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">            if (header == null) return;</span>
+            String line;
+<span class="fc" id="L140">            int inserted = 0, skipped = 0;</span>
+<span class="fc bfc" id="L141" title="All 2 branches covered.">            while ((line = br.readLine()) != null) {</span>
+<span class="fc" id="L142">                line = line.trim();</span>
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">                if (line.isEmpty()) continue;</span>
+<span class="fc" id="L144">                String[] cols = line.split(&quot;,&quot;, -1);</span>
+<span class="pc bpc" id="L145" title="1 of 2 branches missed.">                if (cols.length &lt; 4) {</span>
+<span class="nc" id="L146">                    log.warn(&quot;gas-tariffs.csv: malformed row: {}&quot;, line);</span>
+<span class="nc" id="L147">                    continue;</span>
+                }
+<span class="fc" id="L149">                String tarifa = cols[0].trim();</span>
+<span class="fc" id="L150">                BigDecimal fijoMesEur = new BigDecimal(cols[1].trim());</span>
+<span class="fc" id="L151">                BigDecimal variableEurKwh = new BigDecimal(cols[2].trim());</span>
+<span class="fc" id="L152">                LocalDate vigenciaDesde = LocalDate.parse(cols[3].trim());</span>
+
+<span class="pc bpc" id="L154" title="1 of 2 branches missed.">                if (gasTariffRepo.existsByTarifaAndVigenciaDesde(tarifa, vigenciaDesde)) { skipped++; continue; }</span>
+<span class="fc" id="L155">                gasTariffRepo.save(new GasTariff(tarifa, fijoMesEur, variableEurKwh, vigenciaDesde));</span>
+<span class="fc" id="L156">                inserted++;</span>
+<span class="fc" id="L157">            }</span>
+<span class="fc" id="L158">            log.info(&quot;gas-tariffs: inserted={}, skipped={}&quot;, inserted, skipped);</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L160">            throw new RuntimeException(&quot;Failed to read gas-tariffs.csv: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L161">        }</span>
+<span class="fc" id="L162">    }</span>
+
+    private void seedGasConversionFactors(String dataDir) {
+<span class="fc" id="L165">        Optional&lt;Path&gt; path = resolveCsvPath(dataDir, &quot;gas-conversion-factors.csv&quot;);</span>
+<span class="pc bpc" id="L166" title="1 of 2 branches missed.">        if (path.isEmpty()) return;</span>
+
+<span class="fc" id="L168">        try (BufferedReader br = Files.newBufferedReader(path.get())) {</span>
+<span class="fc" id="L169">            String header = br.readLine();</span>
+<span class="pc bpc" id="L170" title="1 of 2 branches missed.">            if (header == null) return;</span>
+            String line;
+<span class="fc" id="L172">            int inserted = 0, skipped = 0;</span>
+<span class="fc bfc" id="L173" title="All 2 branches covered.">            while ((line = br.readLine()) != null) {</span>
+<span class="fc" id="L174">                line = line.trim();</span>
+<span class="pc bpc" id="L175" title="1 of 2 branches missed.">                if (line.isEmpty()) continue;</span>
+<span class="fc" id="L176">                String[] cols = line.split(&quot;,&quot;, -1);</span>
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">                if (cols.length &lt; 4) {</span>
+<span class="nc" id="L178">                    log.warn(&quot;gas-conversion-factors.csv: malformed row: {}&quot;, line);</span>
+<span class="nc" id="L179">                    continue;</span>
+                }
+<span class="fc" id="L181">                String zona = cols[0].trim();</span>
+<span class="fc" id="L182">                String mes = cols[1].trim();</span>
+<span class="fc" id="L183">                BigDecimal coefConv = new BigDecimal(cols[2].trim());</span>
+<span class="fc" id="L184">                BigDecimal pcsKwhM3 = new BigDecimal(cols[3].trim());</span>
+
+<span class="pc bpc" id="L186" title="1 of 2 branches missed.">                if (conversionFactorRepo.existsByZonaAndMes(zona, mes)) { skipped++; continue; }</span>
+<span class="fc" id="L187">                conversionFactorRepo.save(new GasConversionFactor(zona, mes, coefConv, pcsKwhM3));</span>
+<span class="fc" id="L188">                inserted++;</span>
+<span class="fc" id="L189">            }</span>
+<span class="fc" id="L190">            log.info(&quot;gas-conversion-factors: inserted={}, skipped={}&quot;, inserted, skipped);</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L192">            throw new RuntimeException(&quot;Failed to read gas-conversion-factors.csv: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L193">        }</span>
+<span class="fc" id="L194">    }</span>
+
+    private void seedTaxes(String dataDir) {
+<span class="fc" id="L197">        Optional&lt;Path&gt; path = resolveCsvPath(dataDir, &quot;taxes.csv&quot;);</span>
+<span class="pc bpc" id="L198" title="1 of 2 branches missed.">        if (path.isEmpty()) return;</span>
+
+<span class="fc" id="L200">        try (BufferedReader br = Files.newBufferedReader(path.get())) {</span>
+<span class="fc" id="L201">            String header = br.readLine();</span>
+<span class="pc bpc" id="L202" title="1 of 2 branches missed.">            if (header == null) return;</span>
+            String line;
+<span class="fc" id="L204">            int inserted = 0, skipped = 0;</span>
+<span class="fc bfc" id="L205" title="All 2 branches covered.">            while ((line = br.readLine()) != null) {</span>
+<span class="fc" id="L206">                line = line.trim();</span>
+<span class="pc bpc" id="L207" title="1 of 2 branches missed.">                if (line.isEmpty()) continue;</span>
+<span class="fc" id="L208">                String[] cols = line.split(&quot;,&quot;, -1);</span>
+<span class="pc bpc" id="L209" title="1 of 2 branches missed.">                if (cols.length &lt; 3) {</span>
+<span class="nc" id="L210">                    log.warn(&quot;taxes.csv: malformed row: {}&quot;, line);</span>
+<span class="nc" id="L211">                    continue;</span>
+                }
+<span class="fc" id="L213">                String taxCode = cols[0].trim();</span>
+<span class="fc" id="L214">                BigDecimal taxRate = new BigDecimal(cols[1].trim());</span>
+<span class="fc" id="L215">                LocalDate vigenciaDesde = LocalDate.parse(cols[2].trim());</span>
+
+<span class="pc bpc" id="L217" title="1 of 2 branches missed.">                if (taxConfigRepo.existsByTaxCodeAndVigenciaDesde(taxCode, vigenciaDesde)) { skipped++; continue; }</span>
+<span class="fc" id="L218">                taxConfigRepo.save(new TaxConfig(taxCode, taxRate, vigenciaDesde));</span>
+<span class="fc" id="L219">                inserted++;</span>
+<span class="fc" id="L220">            }</span>
+<span class="fc" id="L221">            log.info(&quot;taxes: inserted={}, skipped={}&quot;, inserted, skipped);</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L223">            throw new RuntimeException(&quot;Failed to read taxes.csv: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L224">        }</span>
+<span class="fc" id="L225">    }</span>
+
+    private void seedGasReadings(String dataDir) {
+<span class="fc" id="L228">        Optional&lt;Path&gt; path = resolveCsvPath(dataDir, &quot;gas-readings.csv&quot;);</span>
+<span class="pc bpc" id="L229" title="1 of 2 branches missed.">        if (path.isEmpty()) return;</span>
+
+<span class="fc" id="L231">        try (BufferedReader br = Files.newBufferedReader(path.get())) {</span>
+<span class="fc" id="L232">            String header = br.readLine();</span>
+<span class="pc bpc" id="L233" title="1 of 2 branches missed.">            if (header == null) return;</span>
+            String line;
+<span class="fc" id="L235">            int inserted = 0, skipped = 0, invalidDate = 0;</span>
+<span class="fc bfc" id="L236" title="All 2 branches covered.">            while ((line = br.readLine()) != null) {</span>
+<span class="fc" id="L237">                line = line.trim();</span>
+<span class="pc bpc" id="L238" title="1 of 2 branches missed.">                if (line.isEmpty()) continue;</span>
+<span class="fc" id="L239">                String[] cols = line.split(&quot;,&quot;, -1);</span>
+<span class="pc bpc" id="L240" title="1 of 2 branches missed.">                if (cols.length &lt; 4) {</span>
+<span class="nc" id="L241">                    log.warn(&quot;gas-readings.csv: malformed row: {}&quot;, line);</span>
+<span class="nc" id="L242">                    continue;</span>
+                }
+<span class="fc" id="L244">                String cups = cols[0].trim();</span>
+<span class="fc" id="L245">                String fechaStr = cols[1].trim();</span>
+<span class="fc" id="L246">                String lecturaStr = cols[2].trim();</span>
+<span class="fc" id="L247">                String tipoStr = cols[3].trim();</span>
+
+                LocalDate fecha;
+<span class="fc" id="L250">                try { fecha = LocalDate.parse(fechaStr); }</span>
+<span class="nc" id="L251">                catch (DateTimeParseException e) {</span>
+<span class="nc" id="L252">                    log.warn(&quot;gas-readings: invalid date '{}', skipping row: {}&quot;, fechaStr, line);</span>
+<span class="nc" id="L253">                    invalidDate++;</span>
+<span class="nc" id="L254">                    continue;</span>
+<span class="fc" id="L255">                }</span>
+
+<span class="fc" id="L257">                BigDecimal lecturaM3 = new BigDecimal(lecturaStr);</span>
+<span class="pc bpc" id="L258" title="1 of 2 branches missed.">                if (lecturaM3.compareTo(BigDecimal.ZERO) &lt; 0) {</span>
+<span class="nc" id="L259">                    log.warn(&quot;gas-readings: lectura_m3 &lt; 0, skipping row: {}&quot;, line);</span>
+<span class="nc" id="L260">                    continue;</span>
+                }
+
+                GasReading.TipoEnum tipo;
+<span class="fc" id="L264">                try { tipo = GasReading.TipoEnum.valueOf(tipoStr); }</span>
+<span class="nc" id="L265">                catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L266">                    log.warn(&quot;gas-readings: invalid tipo '{}', skipping row: {}&quot;, tipoStr, line);</span>
+<span class="nc" id="L267">                    continue;</span>
+<span class="fc" id="L268">                }</span>
+
+<span class="fc" id="L270">                GasReading.GasReadingId id = new GasReading.GasReadingId(cups, fecha);</span>
+<span class="pc bpc" id="L271" title="1 of 2 branches missed.">                if (gasReadingRepo.existsById(id)) { skipped++; continue; }</span>
+<span class="fc" id="L272">                gasReadingRepo.save(new GasReading(cups, fecha, lecturaM3, tipo));</span>
+<span class="fc" id="L273">                inserted++;</span>
+<span class="fc" id="L274">            }</span>
+<span class="fc" id="L275">            log.info(&quot;gas-readings: inserted={}, skipped={}, invalidDate={}&quot;, inserted, skipped, invalidDate);</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L277">            throw new RuntimeException(&quot;Failed to read gas-readings.csv: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L278">        }</span>
+<span class="fc" id="L279">    }</span>
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Looks for the CSV in:
+     *   A) {dataDir}/gas/{specFileName}
+     *   B) {dataDir}/sample_{specFileName}
+     * Returns empty if neither exists (logs WARN).
+     */
+    private Optional&lt;Path&gt; resolveCsvPath(String dataDir, String specFileName) {
+<span class="fc" id="L292">        Path canonical = Paths.get(dataDir, &quot;gas&quot;, specFileName);</span>
+<span class="pc bpc" id="L293" title="1 of 2 branches missed.">        if (Files.exists(canonical)) {</span>
+<span class="fc" id="L294">            log.debug(&quot;CSV resolved (canonical): {}&quot;, canonical);</span>
+<span class="fc" id="L295">            return Optional.of(canonical);</span>
+        }
+<span class="nc" id="L297">        Path fallback = Paths.get(dataDir, &quot;sample_&quot; + specFileName);</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">        if (Files.exists(fallback)) {</span>
+<span class="nc" id="L299">            log.debug(&quot;CSV resolved (fallback): {}&quot;, fallback);</span>
+<span class="nc" id="L300">            return Optional.of(fallback);</span>
+        }
+<span class="nc" id="L302">        log.warn(&quot;CSV not found for '{}' (checked {} and {}); skipping.&quot;, specFileName, canonical, fallback);</span>
+<span class="nc" id="L303">        return Optional.empty();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
