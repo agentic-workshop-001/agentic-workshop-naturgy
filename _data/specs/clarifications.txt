@@ -1,6 +1,31 @@
 # Clarifications - DB Scaffold + API Business Layer
 
 # ============================================================
+# HANDOFF — db-scaffold sprint complete
+# ============================================================
+
+## Done:
+- Spring Boot 3.2.5 / Java 17 project created under `backend/`
+- JPA entities: SupplyPoint, GasReading, GasTariff, GasConversionFactor, TaxConfig, Invoice, InvoiceLine
+- Spring Data repositories for all entities (7 repos)
+- SeedService: idempotent CSV import (dual-path A→B resolution, invalid-date skip, missing-file warn)
+- Canonical CSV seed files created under `_data/db/samples/gas/` (dates fixed: 2026-02-29 → 2026-02-28)
+- H2 in-memory config with NON_KEYWORDS=VALUE
+- Smoke test: 6/6 passing — supply_points=3, gas_tariffs=3, conversion_factors=4, tax_configs=1, gas_readings=6
+
+## Next (backend-scaffold):
+- REST CRUD endpoints (`/api/gas/...`) for all master entities
+- Billing engine: m³ → kWh → costs → IVA → Invoice + InvoiceLines (per logic-spec)
+- Invoice list/detail/PDF endpoints
+- H2 console reachable at http://localhost:8080/h2-console
+
+## Quick verify:
+  cd backend && mvn test          # smoke test must pass green
+  cd backend && mvn spring-boot:run   # app starts; H2 console at /h2-console
+
+
+
+# ============================================================
 # GAS JPA/H2 Scaffold – Clarifications (db-scaffold sprint)
 # ============================================================
 
