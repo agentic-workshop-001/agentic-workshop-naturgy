@@ -11,8 +11,8 @@ public interface TaxConfigRepository extends JpaRepository<TaxConfig, Long> {
 
     boolean existsByTaxCodeAndVigenciaDesde(String taxCode, LocalDate vigenciaDesde);
 
-    @Query("SELECT t FROM TaxConfig t WHERE t.taxCode = :taxCode AND t.vigenciaDesde <= :periodEnd " +
-           "ORDER BY t.vigenciaDesde DESC LIMIT 1")
+    @Query(value = "SELECT * FROM tax_config WHERE tax_code = :taxCode AND vigencia_desde <= :periodEnd " +
+           "ORDER BY vigencia_desde DESC LIMIT 1", nativeQuery = true)
     Optional<TaxConfig> findActiveForPeriod(@Param("taxCode") String taxCode,
                                              @Param("periodEnd") LocalDate periodEnd);
 }

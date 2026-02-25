@@ -1,5 +1,152 @@
 # Runbook — GAS Billing Workshop
 
+## 🔧 Recent Fixes (2026-02-25)
+
+### Backend Bugs
+
+#### Bug #1: JPQL LIMIT Syntax Error
+**Problema:** Las queries en `GasReadingRepository`, `GasTariffRepository`, y `TaxConfigRepository` usaban `LIMIT 1` en JPQL, que no es estándar (solo en SQL nativo).
+
+**Causa raíz:** Sintaxis JPQL incorrecta causaba fallos silenciosos en queries de búsqueda de tarifas activas y configuraciones de impuestos.
+
+**Fix aplicado:**
+- Convertir queries a **SQL nativo** (`nativeQuery = true`)
+- Cambiar nombres de campos a snake_case (formato DB: `vigencia_desde`, `gas_reading`, etc.)
+- Ejemplos:
+  - JPQL: `SELECT t FROM GasTariff t ... LIMIT 1` → SQL: `SELECT * FROM gas_tariff ... LIMIT 1`
+
+**Validación:** 
+```bash
+mvn test  # ✅ 10/10 tests passed
+```
+
+---
+
+#### Bug #2: CSV Seed Path Resolution on Windows
+**Problema:** Al ejecutar desde `backend/`, el `SeedService` no encontraba los CSV porque la ruta relativa `_data/db/samples` se interpretaba como `backend/_data/db/samples/`.
+
+**Causa raíz:** `Paths.get(dataDir).toAbsolutePath()` usa el separador de plataforma y es relativo al directorio actual de ejecución. Sin fallback, fallaba cuando Maven se ejecutaba desde `backend/`.
+
+**Fix aplicado:**
+- Resolver la ruta a absoluta
+- Si no existe, intentar desde el directorio padre (maneja caso de ejecutar desde `backend/`)
+- Logging mejorado mostrando: ruta original + ruta resuelta absoluta
+
+**Código:**
+```java
+Path dataDirPath = Paths.get(dataDir).toAbsolutePath();
+if (!Files.exists(dataDirPath)) {
+    Path parentPath = Paths.get("..", dataDir).toAbsolutePath().normalize();
+    if (Files.exists(parentPath)) {
+        dataDirPath = parentPath;
+    }
+}
+```
+
+**Validación:**
+```
+Seed: data directory = _data/db/samples (resolved to: C:\Proyectos\Naturgy\agentic-workshop-naturgy\_data\db\samples)
+supply-points: inserted=3, skipped=0
+gas-tariffs: inserted=3, skipped=0
+gas-conversion-factors: inserted=4, skipped=0
+taxes: inserted=1, skipped=0
+gas-readings: inserted=6, skipped=0, invalidDate=0
+```
+
+---
+
+### Frontend Bugs
+
+#### Bug #3: "cups and fecha are required" - Incorrect Payload Serialization
+**Problema:** Al crear una lectura de gas (POST /api/gas/readings), el frontend enviaba un payload con `cups` y `fecha` como campos planos, pero el backend esperaba que se mapearan al `EmbeddedId` automáticamente. Esto causaba que el backend validara `reading.getId() == null` y rechazara con error "cups and fecha are required".
+
+**Causa raíz:**
+1. El backend `GasReading` tiene una estructura con `@EmbeddedId` de tipo `GasReadingId` (contiene `cups` y `fecha`)
+2. Spring no mapea automáticamente campos planos JSON al `EmbeddedId`
+3. El frontend enviaba: `{cups: "...", fecha: "...", lecturaM3: ..., tipo: "..."}` 
+4. El backend recibía con `reading.getId() == null` → error
+
+**Fix aplicado:**
+1. **Backend:** Crear un **DTO de entrada** `CreateReadingRequest` que acepta campos planos
+   - Archivo: `backend/src/main/java/com/naturgy/gas/controller/CreateReadingRequest.java`
+   - El controlador valida y construye el `GasReadingId` internamente
+   - Mensajes de error mejorados en español (ej: "cups es obligatorio", "fecha es obligatoria")
+
+2. **Frontend:** Crear validadores reutilizables y mejorar manejo de errores
+   - Archivo: `frontend/src/features/readings/validators.ts`
+   - Validación exhaustiva antes de enviar (cups no vacío, fecha en formato YYYY-MM-DD, lecturaM3 >= 0, tipo válido)
+   - Archivo de test: `validators.test.ts` (para verificar regresiones futuras)
+   - Mejorado manejo de errores del backend en `ReadingsPage.tsx`
+
+**Código Backend (CreateReadingRequest):**
+```java
+@PostMapping
+public ResponseEntity<GasReading> create(@RequestBody CreateReadingRequest request) {
+    // Validate required fields
+    if (request.getCups() == null || request.getCups().trim().isEmpty()) {
+        throw new IllegalArgumentException("cups es obligatorio");
+    }
+    if (request.getFecha() == null || request.getFecha().trim().isEmpty()) {
+        throw new IllegalArgumentException("fecha es obligatoria");
+    }
+    // ... más validaciones
+    
+    // Build entity
+    LocalDate fecha = parseDate(request.getFecha());
+    GasReading.TipoEnum tipo = GasReading.TipoEnum.valueOf(request.getTipo().toUpperCase());
+    GasReading.GasReadingId id = new GasReading.GasReadingId(request.getCups(), fecha);
+    
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(repo.save(new GasReading(request.getCups(), fecha, request.getLecturaM3(), tipo)));
+}
+```
+
+**Código Frontend (Validadores):**
+```typescript
+export function validateGasReading(reading: Partial<GasReading>): ValidationErrors {
+    const errors: ValidationErrors = {};
+    
+    // Validate CUPS
+    if (!reading.cups || !reading.cups.trim()) {
+        errors.cups = 'CUPS es obligatorio (no puede estar vacío)';
+    }
+    
+    // Validate fecha
+    if (!reading.fecha || !reading.fecha.trim()) {
+        errors.fecha = 'Fecha es obligatoria';
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(reading.fecha)) {
+        errors.fecha = 'Fecha debe estar en formato YYYY-MM-DD (ej: 2026-02-25)';
+    }
+    
+    // Validate lecturaM3 >= 0
+    if (reading.lecturaM3 === undefined || reading.lecturaM3 < 0) {
+        errors.lecturaM3 = 'Lectura m³ debe ser un número >= 0';
+    }
+    
+    // Validate tipo
+    if (!reading.tipo || !['REAL', 'ESTIMADA'].includes(reading.tipo)) {
+        errors.tipo = 'Tipo debe ser REAL o ESTIMADA';
+    }
+    
+    return errors;
+}
+```
+
+**Validación:**
+- ✅ Backend tests: 10/10 passed
+- ✅ Frontend build: Success (sin errores de compilación)
+- ✅ Frontend lint: Success (sin errores de linting)
+- ✅ Formulario valida antes de enviar
+- ✅ Errores del backend mostrados en UI
+- ✅ Mensajes en español para mejor UX
+
+---
+
+gas-readings: inserted=6, skipped=0, invalidDate=0
+```
+
+---
+
 ## Prerequisitos
 
 | Herramienta | Versión mínima |

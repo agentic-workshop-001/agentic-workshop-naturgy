@@ -24,6 +24,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import { readingsApi } from '../api';
+import { validateGasReading, formatErrorMessage } from '../validators';
 import type { GasReading } from '../../../shared/types';
 
 const emptyForm: GasReading = { cups: '', fecha: '', lecturaM3: 0, tipo: 'REAL' };
@@ -63,11 +64,7 @@ export default function ReadingsPage() {
   };
 
   const validate = (): boolean => {
-    const errs: Partial<Record<keyof GasReading, string>> = {};
-    if (!form.cups.trim()) errs.cups = 'CUPS es obligatorio';
-    if (!form.fecha) errs.fecha = 'Fecha es obligatoria';
-    else if (!/^\d{4}-\d{2}-\d{2}$/.test(form.fecha)) errs.fecha = 'Formato YYYY-MM-DD';
-    if (form.lecturaM3 < 0) errs.lecturaM3 = 'Debe ser >= 0';
+    const errs = validateGasReading(form);
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -76,12 +73,29 @@ export default function ReadingsPage() {
     if (!validate()) return;
     setSaving(true);
     try {
-      await readingsApi.create(form);
-      setSuccess('Lectura creada');
+      // Prepare payload: ensure fecha is in ISO format YYYY-MM-DD
+      const payload: GasReading = {
+        cups: form.cups.trim(),
+        fecha: form.fecha, // Should already be YYYY-MM-DD from date input
+        lecturaM3: form.lecturaM3,
+        tipo: form.tipo,
+      };
+      await readingsApi.create(payload);
+      setSuccess('Lectura creada correctamente');
       setOpen(false);
+      setFormErrors({});
       load(filterCups || undefined);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Error al guardar');
+      const errorMsg = formatErrorMessage(e);
+      setError(errorMsg);
+      // Also show in form errors if it's a validation error from backend
+      if (
+        errorMsg.toLowerCase().includes('cups') ||
+        errorMsg.toLowerCase().includes('fecha') ||
+        errorMsg.toLowerCase().includes('lectura')
+      ) {
+        setFormErrors(prev => ({ ...prev, cups: errorMsg }));
+      }
     } finally {
       setSaving(false);
     }

@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   gas_tariffs          = 3
  *   gas_conversion_factor= 4
  *   tax_config           = 1
- *   gas_reading          = 6
+ *   gas_reading          = 11 (readings for boundary dates: 2025-12-31, 2026-01-31, 2026-02-28)
  */
 @SpringBootTest
 class SmokeTest {
@@ -51,8 +51,9 @@ class SmokeTest {
 
     @Test
     void gasReadings_count() {
-        // The canonical CSV has 6 valid readings (dates fixed to 2026-02-28, not 2026-02-29)
-        assertEquals(6, gasReadingRepo.count(), "Expected 6 gas readings");
+        // Now we have 11 readings: 4 CUPS x 3 dates (2025-12-31, 2026-01-31, 2026-02-28)
+        // minus 1 (ES003CD only has 2025-12-31 and 2026-02-28, not 2026-01-31)
+        assertEquals(11, gasReadingRepo.count(), "Expected 11 gas readings (boundary dates for all periods)");
     }
 
     @Test

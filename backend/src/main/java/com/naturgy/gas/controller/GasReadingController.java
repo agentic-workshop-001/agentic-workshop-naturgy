@@ -46,17 +46,44 @@ public class GasReadingController {
     }
 
     @PostMapping
-    public ResponseEntity<GasReading> create(@RequestBody GasReading reading) {
-        if (reading.getId() == null || reading.getCups() == null || reading.getFecha() == null) {
-            throw new IllegalArgumentException("cups and fecha are required");
+    public ResponseEntity<GasReading> create(@RequestBody CreateReadingRequest request) {
+        // Validate required fields
+        if (request.getCups() == null || request.getCups().trim().isEmpty()) {
+            throw new IllegalArgumentException("cups es obligatorio");
         }
-        if (reading.getLecturaM3().compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("lectura_m3 must be >= 0");
+        if (request.getFecha() == null || request.getFecha().trim().isEmpty()) {
+            throw new IllegalArgumentException("fecha es obligatoria");
         }
-        if (repo.existsById(reading.getId())) {
+        if (request.getLecturaM3() == null) {
+            throw new IllegalArgumentException("lecturaM3 es obligatoria");
+        }
+        if (request.getLecturaM3().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("lecturaM3 debe ser >= 0");
+        }
+        if (request.getTipo() == null || request.getTipo().trim().isEmpty()) {
+            throw new IllegalArgumentException("tipo es obligatorio");
+        }
+
+        // Parse date
+        LocalDate fecha = parseDate(request.getFecha());
+
+        // Parse tipo enum
+        GasReading.TipoEnum tipo;
+        try {
+            tipo = GasReading.TipoEnum.valueOf(request.getTipo().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("tipo debe ser REAL o ESTIMADA");
+        }
+
+        // Create ID and check for duplicates
+        GasReading.GasReadingId id = new GasReading.GasReadingId(request.getCups(), fecha);
+        if (repo.existsById(id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Reading already exists: " + reading.getCups() + "/" + reading.getFecha());
+                    "Reading already exists: " + request.getCups() + "/" + request.getFecha());
         }
+
+        // Create and save
+        GasReading reading = new GasReading(request.getCups(), fecha, request.getLecturaM3(), tipo);
         return ResponseEntity.status(HttpStatus.CREATED).body(repo.save(reading));
     }
 

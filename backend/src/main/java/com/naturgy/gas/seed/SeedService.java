@@ -55,13 +55,26 @@ public class SeedService implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        log.info("Seed: data directory = {}", dataDir);
+        // Resolve dataDir to absolute path
+        // If relative and not found, try going up one directory (handles running from backend/ subdir)
+        Path dataDirPath = Paths.get(dataDir).toAbsolutePath();
+        
+        if (!Files.exists(dataDirPath)) {
+            // Try parent directory (in case running from backend/ subdirectory)
+            Path parentPath = Paths.get("..", dataDir).toAbsolutePath().normalize();
+            if (Files.exists(parentPath)) {
+                dataDirPath = parentPath;
+            }
+        }
+        
+        String resolvedDataDir = dataDirPath.toString();
+        log.info("Seed: data directory = {} (resolved to: {})", dataDir, resolvedDataDir);
 
-        seedSupplyPoints(dataDir);
-        seedGasTariffs(dataDir);
-        seedGasConversionFactors(dataDir);
-        seedTaxes(dataDir);
-        seedGasReadings(dataDir);
+        seedSupplyPoints(resolvedDataDir);
+        seedGasTariffs(resolvedDataDir);
+        seedGasConversionFactors(resolvedDataDir);
+        seedTaxes(resolvedDataDir);
+        seedGasReadings(resolvedDataDir);
 
         log.info("Seed complete. supply_points={}, gas_tariffs={}, conversion_factors={}, " +
                  "tax_configs={}, gas_readings={}",

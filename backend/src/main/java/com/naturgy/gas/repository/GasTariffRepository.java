@@ -11,8 +11,8 @@ public interface GasTariffRepository extends JpaRepository<GasTariff, Long> {
 
     boolean existsByTarifaAndVigenciaDesde(String tarifa, LocalDate vigenciaDesde);
 
-    @Query("SELECT t FROM GasTariff t WHERE t.tarifa = :tarifa AND t.vigenciaDesde <= :periodEnd " +
-           "ORDER BY t.vigenciaDesde DESC LIMIT 1")
+    @Query(value = "SELECT * FROM gas_tariff WHERE tarifa = :tarifa AND vigencia_desde <= :periodEnd " +
+           "ORDER BY vigencia_desde DESC LIMIT 1", nativeQuery = true)
     Optional<GasTariff> findActiveForPeriod(@Param("tarifa") String tarifa,
                                              @Param("periodEnd") LocalDate periodEnd);
 }
