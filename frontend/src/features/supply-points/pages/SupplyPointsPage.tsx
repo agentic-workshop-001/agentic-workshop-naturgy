@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -13,10 +14,8 @@ import {
   LinearProgress,
   MenuItem,
   Select,
-  Snackbar,
   Alert,
   TextField,
-  Typography,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -25,6 +24,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { supplyPointsApi } from '../api';
 import type { SupplyPoint } from '../../../shared/types';
+import PageHeader from '../../../shared/ui/PageHeader';
+import FeedbackSnackbar from '../../../shared/ui/FeedbackSnackbar';
 
 const emptyForm: SupplyPoint = { cups: '', zona: '', tarifa: '', estado: 'ACTIVO' };
 
@@ -128,14 +129,19 @@ export default function SupplyPointsPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">Puntos de Suministro</Typography>
+      <PageHeader title="Puntos de Suministro">
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
           Nuevo
         </Button>
-      </Box>
+      </PageHeader>
+
       {loading && <LinearProgress sx={{ mb: 1 }} />}
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <DataGrid
         rows={rows}
         columns={columns}
@@ -196,15 +202,19 @@ export default function SupplyPointsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={saving}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
             {saving ? 'Guardando…' : 'Guardar'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={!!success} autoHideDuration={3000} onClose={() => setSuccess(null)}>
-        <Alert severity="success" onClose={() => setSuccess(null)}>{success}</Alert>
-      </Snackbar>
+      <FeedbackSnackbar message={success} onClose={() => setSuccess(null)} />
     </Box>
   );
 }
+

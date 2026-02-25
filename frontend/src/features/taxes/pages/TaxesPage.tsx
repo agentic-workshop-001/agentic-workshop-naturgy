@@ -3,15 +3,14 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
   LinearProgress,
-  Snackbar,
   TextField,
-  Typography,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -20,6 +19,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { taxesApi } from '../api';
 import type { TaxConfig } from '../../../shared/types';
+import PageHeader from '../../../shared/ui/PageHeader';
+import FeedbackSnackbar from '../../../shared/ui/FeedbackSnackbar';
 
 const emptyForm: TaxConfig = { taxCode: 'IVA', taxRate: 0.21, vigenciaDesde: '' };
 
@@ -128,14 +129,19 @@ export default function TaxesPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">IVA / Impuestos</Typography>
+      <PageHeader title="IVA / Impuestos">
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
           Nuevo IVA
         </Button>
-      </Box>
+      </PageHeader>
+
       {loading && <LinearProgress sx={{ mb: 1 }} />}
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <DataGrid
         rows={rows}
         columns={columns}
@@ -168,7 +174,7 @@ export default function TaxesPage() {
             helperText={formErrors.taxRate || 'Ej: 0.21 para 21%'}
             fullWidth
             margin="normal"
-            inputProps={{ min: 0, max: 1, step: 0.01 }}
+            slotProps={{ htmlInput: { min: 0, max: 1, step: 0.01 } }}
             required
           />
           <TextField
@@ -180,21 +186,25 @@ export default function TaxesPage() {
             helperText={formErrors.vigenciaDesde}
             fullWidth
             margin="normal"
-            InputLabelProps={{ shrink: true }}
+            slotProps={{ inputLabel: { shrink: true } }}
             required
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={saving}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
             {saving ? 'Guardando…' : 'Guardar'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={!!success} autoHideDuration={3000} onClose={() => setSuccess(null)}>
-        <Alert severity="success" onClose={() => setSuccess(null)}>{success}</Alert>
-      </Snackbar>
+      <FeedbackSnackbar message={success} onClose={() => setSuccess(null)} />
     </Box>
   );
 }
+

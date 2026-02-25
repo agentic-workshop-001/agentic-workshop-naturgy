@@ -1,5 +1,25 @@
 # Runbook — GAS Billing Workshop
 
+## 🎨 UI Refactor — Naturgy React Standards (latest)
+
+### Changes Applied
+Following SSOT: `_data/specs/react-standards.md` (Naturgy React Standards, MUI v5/v7)
+
+| Area | Change |
+|------|--------|
+| `src/index.css` | Replaced Vite boilerplate (dark background, conflicting button styles) with minimal reset — MUI CssBaseline handles the rest |
+| `src/app/theme.ts` | Enhanced with Naturgy brand tokens, component overrides (Button: no elevation + sentence-case, Card/Paper: consistent shadow, Dialog: rounded 12px, LinearProgress: 4px height) |
+| `src/shared/api/httpClient.ts` | Per-status error mapping: 400→server message, 404→"Recurso no encontrado", 500→"Error interno del servidor" |
+| `src/app/Layout.tsx` | Naturgy-branded sidebar header (navy bg + fire icon + subtitle), rounded nav items, version footer |
+| `src/shared/ui/PageHeader.tsx` | New — reusable page header component (`Typography h4` + right-aligned action slot) |
+| `src/shared/ui/FeedbackSnackbar.tsx` | New — reusable success Snackbar (filled Alert) per standards |
+| All CRUD pages | Use `PageHeader` + `FeedbackSnackbar`; save buttons now show `CircularProgress` spinner while loading |
+| Date inputs | Migrated from deprecated `InputLabelProps`/`inputProps` → MUI v6/v7 `slotProps` API |
+
+**Validated:** `npm run build` ✅  `npm run lint` ✅
+
+---
+
 ## 🔧 Recent Fixes (2026-02-25)
 
 ### Backend Bugs

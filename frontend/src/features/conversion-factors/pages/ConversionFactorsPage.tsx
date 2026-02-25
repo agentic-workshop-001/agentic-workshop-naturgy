@@ -3,15 +3,14 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
   LinearProgress,
-  Snackbar,
   TextField,
-  Typography,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -21,6 +20,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import { conversionFactorsApi } from '../api';
 import type { ConversionFactor } from '../../../shared/types';
+import PageHeader from '../../../shared/ui/PageHeader';
+import FeedbackSnackbar from '../../../shared/ui/FeedbackSnackbar';
 
 const emptyForm: ConversionFactor = { zona: '', mes: '', coefConv: 0, pcsKwhM3: 0 };
 
@@ -134,12 +135,11 @@ export default function ConversionFactorsPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">Factores de Conversión</Typography>
+      <PageHeader title="Factores de Conversión">
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
           Nuevo Factor
         </Button>
-      </Box>
+      </PageHeader>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <TextField
@@ -162,7 +162,12 @@ export default function ConversionFactorsPage() {
       </Box>
 
       {loading && <LinearProgress sx={{ mb: 1 }} />}
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <DataGrid
         rows={filteredRows}
         columns={columns}
@@ -205,7 +210,7 @@ export default function ConversionFactorsPage() {
             helperText={formErrors.coefConv}
             fullWidth
             margin="normal"
-            inputProps={{ min: 0.001, step: 0.0001 }}
+            slotProps={{ htmlInput: { min: 0.001, step: 0.0001 } }}
             required
           />
           <TextField
@@ -217,21 +222,25 @@ export default function ConversionFactorsPage() {
             helperText={formErrors.pcsKwhM3}
             fullWidth
             margin="normal"
-            inputProps={{ min: 0.001, step: 0.0001 }}
+            slotProps={{ htmlInput: { min: 0.001, step: 0.0001 } }}
             required
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={saving}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
             {saving ? 'Guardando…' : 'Guardar'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={!!success} autoHideDuration={3000} onClose={() => setSuccess(null)}>
-        <Alert severity="success" onClose={() => setSuccess(null)}>{success}</Alert>
-      </Snackbar>
+      <FeedbackSnackbar message={success} onClose={() => setSuccess(null)} />
     </Box>
   );
 }
+
