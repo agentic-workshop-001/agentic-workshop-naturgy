@@ -5,46 +5,70 @@ on:
     outputs:
       backend_artifact:
         description: "Name of the uploaded backend JAR artifact"
-        value: ${{ jobs.build-test.outputs.backend_artifact }}
+        value: ${{ jobs.build-backend.outputs.backend_artifact }}
       frontend_artifact:
         description: "Name of the uploaded frontend dist artifact"
-        value: ${{ jobs.build-test.outputs.frontend_artifact }}
+        value: ${{ jobs.build-frontend.outputs.frontend_artifact }}
 
 permissions:
   contents: read
 
 jobs:
-  build-test:
-    name: Build & Test (Backend + Frontend)
+  # ──────────────────────────────────────────────────────────
+  # Job 1: Build backend, run tests, upload JAR + JaCoCo report
+  # ──────────────────────────────────────────────────────────
+  build-backend:
+    name: Build & Test – Backend
     runs-on: ubuntu-latest
     outputs:
-      backend_artifact: ${{ steps.set-outputs.outputs.backend_artifact }}
-      frontend_artifact: ${{ steps.set-outputs.outputs.frontend_artifact }}
+      backend_artifact: ${{ steps.set-output.outputs.backend_artifact }}
     steps:
       - name: Checkout source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # ── Backend ──────────────────────────────────────────────
-      - name: Set up Java 17
+      - name: Set up Java 17 (temurin, Maven cache)
         uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           java-version: "17"
           distribution: "temurin"
           cache: maven
 
-      - name: Build & test backend
+      - name: Build backend and run unit tests
         working-directory: backend
-        run: mvn --batch-mode --no-transfer-progress verify
+        run: mvn clean verify -B
 
-      - name: Upload backend artifact
+      - name: Upload backend JAR artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: backend-jar
           path: backend/target/*.jar
           retention-days: 7
 
-      # ── Frontend ─────────────────────────────────────────────
-      - name: Set up Node 20
+      - name: Upload JaCoCo test report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-report-backend
+          path: backend/target/site/jacoco/
+          retention-days: 7
+
+      - name: Set backend artifact output
+        id: set-output
+        run: echo "backend_artifact=backend-jar" >> "$GITHUB_OUTPUT"
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2: Build frontend, run tests, upload dist + Vitest coverage
+  # (runs in parallel with build-backend – no needs dependency)
+  # ──────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build & Test – Frontend
+    runs-on: ubuntu-latest
+    outputs:
+      frontend_artifact: ${{ steps.set-output.outputs.frontend_artifact }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node 20 (npm cache)
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
         with:
           node-version: "20"
@@ -59,19 +83,24 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Test frontend
+      - name: Run frontend tests with coverage
         working-directory: frontend
         run: npm run test:coverage
 
-      - name: Upload frontend artifact
+      - name: Upload frontend dist artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: frontend-dist
           path: frontend/dist/
           retention-days: 7
 
-      - name: Set job outputs
-        id: set-outputs
-        run: |
-          echo "backend_artifact=backend-jar" >> "$GITHUB_OUTPUT"
-          echo "frontend_artifact=frontend-dist" >> "$GITHUB_OUTPUT"
+      - name: Upload Vitest coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-report-frontend
+          path: reports/vitest/
+          retention-days: 7
+
+      - name: Set frontend artifact output
+        id: set-output
+        run: echo "frontend_artifact=frontend-dist" >> "$GITHUB_OUTPUT"
