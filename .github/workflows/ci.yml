@@ -1,0 +1,88 @@
+# ============================================================
+# Main CI/CD Orchestrator
+#
+# Required GitHub Secrets:
+#   AWS_ROLE_TO_ASSUME   – ARN of the IAM role to assume via OIDC
+#   AWS_REGION           – Default AWS region (e.g. eu-west-1)
+#
+# Optional GitHub Secrets (used by downstream reusable workflows):
+#   SIT_BASE_URL         – Base URL for SIT smoke tests
+#   SLACK_WEBHOOK_URL    – Webhook for RCA notifications
+# ============================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target deployment environment"
+        required: false
+        default: "staging"
+        type: string
+      aws_region:
+        description: "AWS region to deploy to"
+        required: false
+        default: "eu-west-1"
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.environment || 'staging' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & Test
+    uses: ./.github/workflows/reusable-build-test.yml
+    permissions:
+      contents: read
+
+  deploy:
+    name: Deploy to AWS
+    needs: build-test
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-deploy.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      aws_region: ${{ github.event.inputs.aws_region || 'eu-west-1' }}
+    secrets:
+      aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+  sit:
+    name: SIT
+    needs: deploy
+    uses: ./.github/workflows/reusable-sit.yml
+    permissions:
+      contents: read
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+    secrets:
+      sit_base_url: ${{ secrets.SIT_BASE_URL }}
+
+  rca:
+    name: RCA
+    needs:
+      - build-test
+      - deploy
+      - sit
+    if: always()
+    uses: ./.github/workflows/reusable-rca.yml
+    permissions:
+      contents: read
+    with:
+      environment: ${{ github.event.inputs.environment || 'staging' }}
+      build_test_result: ${{ needs.build-test.result }}
+      deploy_result: ${{ needs.deploy.result }}
+      sit_result: ${{ needs.sit.result }}
+    secrets:
+      slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
