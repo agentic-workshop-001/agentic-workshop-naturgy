@@ -4,6 +4,11 @@
 # Required GitHub Secrets:
 #   AWS_ROLE_TO_ASSUME   – ARN of the IAM role to assume via OIDC
 #   AWS_REGION           – Default AWS region (e.g. eu-west-1)
+#   ECR_REGISTRY         – ECR registry URL (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com)
+#   ECR_REPOSITORY       – ECR repository name (e.g. gas-backend)
+#   ECS_CLUSTER          – ECS cluster name
+#   ECS_SERVICE          – ECS service name
+#   S3_BUCKET            – S3 bucket name for frontend static assets
 #
 # Optional GitHub Secrets (used by downstream reusable workflows):
 #   SIT_BASE_URL         – Base URL for SIT smoke tests
@@ -57,6 +62,11 @@ jobs:
       aws_region: ${{ github.event.inputs.aws_region || 'eu-west-1' }}
     secrets:
       aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      ecr_registry: ${{ secrets.ECR_REGISTRY }}
+      ecr_repository: ${{ secrets.ECR_REPOSITORY }}
+      ecs_cluster: ${{ secrets.ECS_CLUSTER }}
+      ecs_service: ${{ secrets.ECS_SERVICE }}
+      s3_bucket: ${{ secrets.S3_BUCKET }}
 
   sit:
     name: SIT

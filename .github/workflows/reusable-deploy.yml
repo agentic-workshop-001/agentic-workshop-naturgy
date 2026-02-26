@@ -1,3 +1,24 @@
+# ============================================================
+# Reusable Deploy Workflow
+#
+# Deploys the Naturgy Gas Workshop application to AWS:
+#   1. deploy-infra   – Terraform plan + apply
+#   2. deploy-frontend – Sync React/Vite dist to S3 (parallel with deploy-backend)
+#   3. deploy-backend  – Build & push Docker image, update ECS Fargate service
+#   4. verify-deploy   – ALB + S3 health checks, upload deploy evidence
+#
+# Required secrets (passed by caller):
+#   aws_role_to_assume  – IAM role ARN for OIDC authentication
+#   ecr_registry        – ECR registry URL (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com)
+#   ecr_repository      – ECR repository name (e.g. gas-backend)
+#   ecs_cluster         – ECS cluster name
+#   ecs_service         – ECS service name
+#   s3_bucket           – S3 bucket name for frontend static assets
+#
+# TODO: Migrate AWS auth from long-lived keys to OIDC when IAM roles are available.
+#       Replace role-to-assume with the OIDC role ARN and remove static key secrets.
+# ============================================================
+
 name: Reusable – Deploy to AWS
 
 on:
@@ -15,27 +36,84 @@ on:
       aws_role_to_assume:
         description: "ARN of the IAM role to assume via OIDC"
         required: true
+      ecr_registry:
+        description: "ECR registry URL (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com)"
+        required: true
+      ecr_repository:
+        description: "ECR repository name (e.g. gas-backend)"
+        required: true
+      ecs_cluster:
+        description: "ECS cluster name"
+        required: true
+      ecs_service:
+        description: "ECS service name"
+        required: true
+      s3_bucket:
+        description: "S3 bucket name for frontend static assets"
+        required: true
 
+# Minimal permissions: checkout needs contents:read; OIDC auth needs id-token:write
 permissions:
   contents: read
   id-token: write
 
 jobs:
-  deploy:
-    name: Deploy – ${{ inputs.environment }}
+  # ──────────────────────────────────────────────────────────
+  # Job 1: Provision / update infrastructure via Terraform
+  # ──────────────────────────────────────────────────────────
+  deploy-infra:
+    name: Terraform – ${{ inputs.environment }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+
     steps:
       - name: Checkout source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Download backend artifact
-        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
-          name: backend-jar
-          path: backend/target/
+          role-to-assume: ${{ secrets.aws_role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
 
-      - name: Download frontend artifact
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269ef065 # v3.1.2
+
+      - name: Terraform init
+        run: terraform -chdir=terraform init
+
+      - name: Terraform plan
+        run: terraform -chdir=terraform plan -out=tfplan
+
+      - name: Terraform apply
+        run: terraform -chdir=terraform apply -auto-approve tfplan
+
+      - name: Capture Terraform outputs
+        # Outputs consumed by verify-deploy to obtain ALB URL and S3 website URL
+        run: terraform -chdir=terraform output -json > deploy-outputs.json
+
+      - name: Upload Terraform outputs artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: terraform-outputs
+          path: deploy-outputs.json
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2: Sync React/Vite build to S3 (runs in parallel with deploy-backend)
+  # ──────────────────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend – ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: deploy-infra
+
+    steps:
+      - name: Mask S3 bucket secret
+        # Prevent the bucket name from appearing in plain-text in log output
+        run: echo "::add-mask::${{ secrets.s3_bucket }}"
+
+      - name: Download frontend-dist artifact
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: frontend-dist
@@ -47,6 +125,140 @@ jobs:
           role-to-assume: ${{ secrets.aws_role_to_assume }}
           aws-region: ${{ inputs.aws_region }}
 
-      # Placeholder – replace with your actual deploy steps
-      - name: Deploy (placeholder)
-        run: echo "Deploying to ${{ inputs.environment }} in ${{ inputs.aws_region }}…"
+      - name: Sync frontend dist to S3
+        # --delete removes stale files from the bucket that are no longer in the dist
+        run: aws s3 sync frontend/dist/ s3://${{ secrets.s3_bucket }} --delete
+
+  # ──────────────────────────────────────────────────────────
+  # Job 3: Build Docker image, push to ECR, update ECS service
+  # ──────────────────────────────────────────────────────────
+  deploy-backend:
+    name: Deploy Backend – ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: deploy-infra
+
+    steps:
+      - name: Mask ECR secrets
+        # Prevent registry URL and repository name leaking into logs
+        run: |
+          echo "::add-mask::${{ secrets.ecr_registry }}"
+          echo "::add-mask::${{ secrets.ecr_repository }}"
+
+      - name: Checkout source
+        # Full repo checkout required for Docker build context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.aws_role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ secrets.ecr_registry }}/${{ secrets.ecr_repository }}:${{ github.sha }} \
+            .
+
+      - name: Push Docker image to ECR
+        run: |
+          docker push \
+            ${{ secrets.ecr_registry }}/${{ secrets.ecr_repository }}:${{ github.sha }}
+
+      - name: Update ECS service with new image
+        # force-new-deployment triggers a rolling update using the newly pushed image
+        run: |
+          aws ecs update-service \
+            --cluster ${{ secrets.ecs_cluster }} \
+            --service ${{ secrets.ecs_service }} \
+            --force-new-deployment
+
+      - name: Wait for ECS service stability
+        # Blocks until all running tasks use the new task definition (up to ~10 min by default)
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ secrets.ecs_cluster }} \
+            --services ${{ secrets.ecs_service }}
+
+  # ──────────────────────────────────────────────────────────
+  # Job 4: Health checks + deploy evidence (runs after both deploy jobs)
+  # ──────────────────────────────────────────────────────────
+  verify-deploy:
+    name: Verify Deploy – ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: [deploy-frontend, deploy-backend]
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.aws_role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Download Terraform outputs artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: terraform-outputs
+
+      - name: Health check backend (retry up to 5 attempts)
+        # Retries with 30 s sleep to allow ALB/ECS warm-up after deployment
+        run: |
+          ALB_URL=$(jq -r '.alb_url.value // .alb_dns_name.value' deploy-outputs.json)
+          echo "::add-mask::$ALB_URL"
+          echo "Checking backend health at http://$ALB_URL/actuator/health"
+
+          MAX_ATTEMPTS=5
+          SLEEP_SECONDS=30
+          attempt=1
+
+          until curl --fail --silent --max-time 10 "http://$ALB_URL/actuator/health"; do
+            if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
+              echo "Backend health check failed after $MAX_ATTEMPTS attempts."
+              exit 1
+            fi
+            echo "Attempt $attempt/$MAX_ATTEMPTS failed – retrying in ${SLEEP_SECONDS}s…"
+            attempt=$((attempt + 1))
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "Backend is healthy."
+          echo "ALB_URL=$ALB_URL" >> "$GITHUB_ENV"
+
+      - name: Verify frontend accessible
+        run: |
+          FRONTEND_URL=$(jq -r '.s3_website_url.value // .frontend_url.value' deploy-outputs.json)
+          echo "::add-mask::$FRONTEND_URL"
+          echo "Checking frontend at $FRONTEND_URL"
+          curl --fail --silent --max-time 10 "$FRONTEND_URL"
+          echo "Frontend is accessible."
+          echo "FRONTEND_URL=$FRONTEND_URL" >> "$GITHUB_ENV"
+
+      - name: Generate deploy evidence
+        # Produces a JSON artifact suitable for audit trails and post-deployment reporting
+        run: |
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > deploy-evidence.json <<EOF
+          {
+            "alb_url": "$ALB_URL",
+            "frontend_url": "$FRONTEND_URL",
+            "sha": "${{ github.sha }}",
+            "timestamp": "$TIMESTAMP",
+            "environment": "${{ inputs.environment }}",
+            "status": "success"
+          }
+          EOF
+          echo "Deploy evidence:"
+          cat deploy-evidence.json
+
+      - name: Upload deploy evidence artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-evidence
+          path: deploy-evidence.json
+          # Retain evidence for 30 days for compliance and audit purposes
+          retention-days: 30
