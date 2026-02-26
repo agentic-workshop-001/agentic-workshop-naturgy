@@ -325,8 +325,8 @@ Los siguientes secretos deben estar configurados en **Settings → Secrets and v
 
 | Secret | Descripción | Ejemplo |
 |--------|-------------|---------|
-| `AWS_ROLE_TO_ASSUME` | ARN del IAM role con permisos de despliegue (OIDC) | `arn:aws:iam::123456789:role/github-deploy` |
-| `ECR_REGISTRY` | URL del registro ECR | `123456789.dkr.ecr.eu-west-1.amazonaws.com` |
+| `AWS_ROLE_TO_ASSUME` | ARN del IAM role con permisos de despliegue (OIDC) | `arn:aws:iam::123456789012:role/github-deploy` |
+| `ECR_REGISTRY` | URL del registro ECR | `123456789012.dkr.ecr.eu-west-1.amazonaws.com` |
 | `ECR_REPOSITORY` | Nombre del repositorio ECR | `gas-backend` |
 | `ECS_CLUSTER` | Nombre del clúster ECS | `gas-cluster` |
 | `ECS_SERVICE` | Nombre del servicio ECS | `gas-backend-service` |

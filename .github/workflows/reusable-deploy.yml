@@ -260,4 +260,4 @@ jobs:
         with:
           name: deploy-evidence
           path: deploy-evidence.json
-          retention-days: "30"
+          retention-days: 30
