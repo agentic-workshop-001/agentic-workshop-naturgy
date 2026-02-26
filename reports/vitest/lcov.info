@@ -1,5 +1,5 @@
 TN:
-SF:src\App.tsx
+SF:src/App.tsx
 FN:12,App
 FNF:1
 FNH:1
@@ -43,7 +43,7 @@ BRF:1
 BRH:1
 end_of_record
 TN:
-SF:src\main.tsx
+SF:src/main.tsx
 FN:1,(empty-report)
 FNF:1
 FNH:0
@@ -65,7 +65,7 @@ BRF:1
 BRH:0
 end_of_record
 TN:
-SF:src\app\HomePage.tsx
+SF:src/app/HomePage.tsx
 FN:19,HomePage
 FN:31,onClick
 FNF:2
@@ -124,7 +124,7 @@ BRF:2
 BRH:2
 end_of_record
 TN:
-SF:src\app\Layout.tsx
+SF:src/app/Layout.tsx
 FN:47,Layout
 FN:88,onClick
 FN:128,zIndex
@@ -342,7 +342,7 @@ BRF:4
 BRH:3
 end_of_record
 TN:
-SF:src\app\providers.tsx
+SF:src/app/providers.tsx
 FN:9,Providers
 FNF:1
 FNH:1
@@ -370,7 +370,7 @@ BRF:1
 BRH:1
 end_of_record
 TN:
-SF:src\app\theme.ts
+SF:src/app/theme.ts
 FNF:0
 FNH:0
 DA:1,1
@@ -510,7 +510,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\billing\api\index.ts
+SF:src/features/billing/api/index.ts
 FN:5,runBilling
 FN:7,getInvoices
 FN:14,getInvoice
@@ -546,7 +546,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\billing\pages\BillingPage.tsx
+SF:src/features/billing/pages/BillingPage.tsx
 FN:39,BillingPage
 FNF:1
 FNH:0
@@ -937,7 +937,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\conversion-factors\api\index.ts
+SF:src/features/conversion-factors/api/index.ts
 FN:5,getAll
 FN:6,create
 FN:7,update
@@ -964,7 +964,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\conversion-factors\pages\ConversionFactorsPage.tsx
+SF:src/features/conversion-factors/pages/ConversionFactorsPage.tsx
 FN:28,ConversionFactorsPage
 FNF:1
 FNH:0
@@ -1220,7 +1220,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\readings\validators.ts
+SF:src/features/readings/validators.ts
 FN:14,validateGasReading
 FN:53,isFormComplete
 FN:66,formatErrorMessage
@@ -1330,7 +1330,7 @@ BRF:21
 BRH:20
 end_of_record
 TN:
-SF:src\features\readings\api\index.ts
+SF:src/features/readings/api/index.ts
 FN:5,getAll
 FN:7,create
 FN:8,delete
@@ -1355,7 +1355,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\readings\pages\ReadingsPage.tsx
+SF:src/features/readings/pages/ReadingsPage.tsx
 FN:33,ReadingsPage
 FNF:1
 FNH:0
@@ -1633,7 +1633,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\supply-points\api\index.ts
+SF:src/features/supply-points/api/index.ts
 FN:5,getAll
 FN:6,create
 FN:7,update
@@ -1661,7 +1661,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\supply-points\pages\SupplyPointsPage.tsx
+SF:src/features/supply-points/pages/SupplyPointsPage.tsx
 FN:32,SupplyPointsPage
 FNF:1
 FNH:0
@@ -1891,7 +1891,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\tariffs\api\index.ts
+SF:src/features/tariffs/api/index.ts
 FN:5,getAll
 FN:6,create
 FN:7,update
@@ -1917,7 +1917,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\tariffs\pages\TariffsPage.tsx
+SF:src/features/tariffs/pages/TariffsPage.tsx
 FN:27,TariffsPage
 FNF:1
 FNH:0
@@ -2145,7 +2145,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\taxes\api\index.ts
+SF:src/features/taxes/api/index.ts
 FN:5,getAll
 FN:6,create
 FN:7,update
@@ -2171,7 +2171,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\features\taxes\pages\TaxesPage.tsx
+SF:src/features/taxes/pages/TaxesPage.tsx
 FN:27,TaxesPage
 FNF:1
 FNH:0
@@ -2391,7 +2391,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\shared\api\httpClient.ts
+SF:src/shared/api/httpClient.ts
 FN:15,handleResponse
 FN:45,get
 FN:48,post
@@ -2477,7 +2477,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\shared\ui\FeedbackSnackbar.tsx
+SF:src/shared/ui/FeedbackSnackbar.tsx
 FN:18,FeedbackSnackbar
 FNF:1
 FNH:0
@@ -2518,7 +2518,7 @@ BRF:0
 BRH:0
 end_of_record
 TN:
-SF:src\shared\ui\PageHeader.tsx
+SF:src/shared/ui/PageHeader.tsx
 FN:25,PageHeader
 FNF:1
 FNH:0
