@@ -13,6 +13,13 @@ on:
 permissions:
   contents: read
 
+# Prevent duplicate build runs for the same branch/ref.
+# Uses a workflow-scoped suffix so this group does not clash with
+# deploy or rca concurrency groups when called from the same pipeline run.
+concurrency:
+  group: ${{ github.workflow }}-build-test-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ──────────────────────────────────────────────────────────
   # Job 1: Build backend, run tests, upload JAR + JaCoCo report
