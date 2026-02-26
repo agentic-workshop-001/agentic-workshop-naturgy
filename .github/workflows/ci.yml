@@ -6,7 +6,8 @@
 #   AWS_REGION           – Default AWS region (e.g. eu-west-1)
 #
 # Optional GitHub Secrets (used by downstream reusable workflows):
-#   SIT_BASE_URL         – Base URL for SIT smoke tests
+#   BACKEND_URL          – Base URL of the deployed backend ALB (used by SIT)
+#   FRONTEND_URL         – URL of the deployed frontend S3 site  (used by SIT)
 #   SLACK_WEBHOOK_URL    – Webhook for RCA notifications
 # ============================================================
 
@@ -67,7 +68,8 @@ jobs:
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
     secrets:
-      sit_base_url: ${{ secrets.SIT_BASE_URL }}
+      backend_url: ${{ secrets.BACKEND_URL }}
+      frontend_url: ${{ secrets.FRONTEND_URL }}
 
   rca:
     name: RCA
