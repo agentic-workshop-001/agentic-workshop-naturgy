@@ -1,0 +1,45 @@
+name: Reusable – RCA (Root Cause Analysis / Notifications)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Environment where the pipeline ran"
+        required: true
+        type: string
+      build_test_result:
+        description: "Result of the build-test job (success|failure|cancelled|skipped)"
+        required: true
+        type: string
+      deploy_result:
+        description: "Result of the deploy job (success|failure|cancelled|skipped)"
+        required: true
+        type: string
+      sit_result:
+        description: "Result of the SIT job (success|failure|cancelled|skipped)"
+        required: true
+        type: string
+    secrets:
+      slack_webhook_url:
+        description: "Slack incoming webhook URL for pipeline notifications"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  rca:
+    name: RCA – ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    steps:
+      # Placeholder – replace with your actual RCA / notification steps
+      - name: Summarise pipeline results (placeholder)
+        run: |
+          echo "=== Pipeline RCA Summary ==="
+          echo "Environment : ${{ inputs.environment }}"
+          echo "Build & Test: ${{ inputs.build_test_result }}"
+          echo "Deploy      : ${{ inputs.deploy_result }}"
+          echo "SIT         : ${{ inputs.sit_result }}"
+
+      - name: Notify Slack (placeholder)
+        run: echo "Slack notification would be sent here (if webhook is configured)."
