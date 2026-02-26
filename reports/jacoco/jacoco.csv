@@ -6,8 +6,8 @@ gas-workshop,com.naturgy.gas.entity,GasReading,36,22,4,0,7,7,9,3,7,3
 gas-workshop,com.naturgy.gas.entity,Invoice,36,70,0,0,9,22,9,12,9,12
 gas-workshop,com.naturgy.gas.entity,GasConversionFactor,25,24,0,0,7,9,7,4,7,4
 gas-workshop,com.naturgy.gas.entity,GasTariff,25,24,0,0,7,9,7,4,7,4
-gas-workshop,com.naturgy.gas.entity,SupplyPoint,19,27,0,0,5,10,5,5,5,5
 gas-workshop,com.naturgy.gas.entity,TaxConfig,21,18,0,0,6,7,6,3,6,3
+gas-workshop,com.naturgy.gas.entity,SupplyPoint,19,27,0,0,5,10,5,5,5,5
 gas-workshop,com.naturgy.gas.entity,InvoiceLine,33,36,0,0,9,13,9,6,9,6
 gas-workshop,com.naturgy.gas.entity,GasReading.TipoEnum,0,15,0,0,0,1,0,1,0,1
 gas-workshop,com.naturgy.gas.entity,InvoiceLine.TipoLineaEnum,0,27,0,0,0,1,0,1,0,1

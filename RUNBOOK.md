@@ -199,7 +199,7 @@ curl http://localhost:8080/api/gas/supply-points
 
 ```bash
 cd frontend
-npm install          # primera vez
+npm install --legacy-peer-deps   # primera vez (requiere --legacy-peer-deps: React 19 + testing-library peer conflict)
 npm run dev
 ```
 
