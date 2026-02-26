@@ -4,27 +4,62 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: "Environment under test"
-        required: true
-        type: string
-    secrets:
-      sit_base_url:
-        description: "Base URL of the deployed application for SIT smoke tests"
+        description: "Logical environment name used in job labels (e.g. staging, production)"
         required: false
+        type: string
+        default: "staging"
+    secrets:
+      backend_url:
+        description: "Base URL of the deployed backend (ALB) — e.g. http://my-alb.region.elb.amazonaws.com"
+        required: true
+      frontend_url:
+        description: "URL of the deployed frontend (S3 static site)"
+        required: true
 
+# Minimal permissions — this workflow only reads source code and uploads evidence.
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  sit:
-    name: SIT – ${{ inputs.environment }}
+  sit-tests:
+    name: SIT Tests – ${{ inputs.environment }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # Placeholder – replace with your actual SIT / smoke-test steps
-      - name: Run SIT smoke tests (placeholder)
+      # jq is used for JSON parsing inside sit-tests.sh; curl is the HTTP client.
+      # Pinning to a specific apt snapshot is not feasible in GitHub-hosted runners,
+      # so we install from the Ubuntu package mirror (both tools are well-audited stdlib).
+      - name: Install runtime dependencies (jq, curl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq curl
+          echo "Installed versions:"
+          jq --version
+          curl --version | head -1
+
+      - name: Make SIT test script executable
+        run: chmod +x scripts/sit-tests.sh
+
+      - name: Run SIT tests
         env:
-          BASE_URL: ${{ secrets.sit_base_url }}
-        run: echo "Running SIT against ${{ inputs.environment }} at ${BASE_URL:-<BASE_URL not set>}…"
+          BACKEND_URL: ${{ secrets.backend_url }}
+          FRONTEND_URL: ${{ secrets.frontend_url }}
+        run: ./scripts/sit-tests.sh
+
+      # Upload evidence even when the SIT step fails so engineers can diagnose failures.
+      - name: Upload SIT evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sit-evidence
+          path: |
+            sit-results.json
+            invoice.pdf
+          if-no-files-found: warn
+          retention-days: 7
