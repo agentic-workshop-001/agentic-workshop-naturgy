@@ -112,6 +112,12 @@ jobs:
           JACOCO=$(aws s3 presign "s3://$BUCKET/jacoco/index.html" --expires-in $EXPIRES)
           VITEST=$(aws s3 presign "s3://$BUCKET/vitest/index.html" --expires-in $EXPIRES)
 
+          echo "::group::Presigned URLs (valid 7 days)"
+          echo "Dashboard: $DASHBOARD"
+          echo "JaCoCo:    $JACOCO"
+          echo "Vitest:    $VITEST"
+          echo "::endgroup::"
+
           {
             echo "## :bar_chart: Reports Published"
             echo ""
