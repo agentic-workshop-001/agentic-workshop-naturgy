@@ -189,14 +189,15 @@ ISSUE1_NUM=$(gh issue create \
   --title "$ISSUE1_TITLE" \
   --body "$ISSUE1_BODY" \
   --label "infrastructure" \
-  --assignee "@me" \
   2>&1 | grep -oP '\d+$')
 
 ok "Issue #${ISSUE1_NUM} created: Infrastructure"
 
-# Assign to copilot (via API — gh issue create doesn't support --assignee copilot directly)
+# Assign to copilot coding agent
 gh api --method POST "/repos/${REPO}/issues/${ISSUE1_NUM}/assignees" \
-  -f '{"assignees":["copilot"]}' > /dev/null 2>&1 || warn "Could not assign copilot to issue #${ISSUE1_NUM}"
+  --input - <<< '{"assignees":["copilot"]}' > /dev/null 2>&1 \
+  && ok "Copilot assigned to #${ISSUE1_NUM}" \
+  || warn "Could not assign copilot to #${ISSUE1_NUM} — assign manually"
 
 # ── Step 3: Create Issue #2 — Workflows (supermario-developer) ─
 header "Step 3: Create workflows issue"
@@ -321,13 +322,14 @@ ISSUE2_NUM=$(gh issue create \
   --title "$ISSUE2_TITLE" \
   --body "$ISSUE2_BODY" \
   --label "ci-cd" \
-  --assignee "@me" \
   2>&1 | grep -oP '\d+$')
 
 ok "Issue #${ISSUE2_NUM} created: Workflows"
 
 gh api --method POST "/repos/${REPO}/issues/${ISSUE2_NUM}/assignees" \
-  -f '{"assignees":["copilot"]}' > /dev/null 2>&1 || warn "Could not assign copilot to issue #${ISSUE2_NUM}"
+  --input - <<< '{"assignees":["copilot"]}' > /dev/null 2>&1 \
+  && ok "Copilot assigned to #${ISSUE2_NUM}" \
+  || warn "Could not assign copilot to #${ISSUE2_NUM} — assign manually"
 
 # ── Summary ────────────────────────────────────────────────
 header "Demo launched!"
