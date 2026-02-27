@@ -67,7 +67,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269ef065 # v3.1.2
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
 
@@ -111,7 +111,7 @@ jobs:
           path: dist/
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -135,14 +135,14 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+        uses: aws-actions/amazon-ecr-login@4625ce35226a7557230889aae2f52eb50ec3dcda # v2.0.1
 
       - name: Build Docker image
         run: |
