@@ -3,4 +3,8 @@ output "reports_bucket_name" {
   value       = aws_s3_bucket.reports.id
 }
 
+output "reports_website_url" {
+  description = "Public URL of the S3 static website"
+  value       = aws_s3_bucket_website_configuration.reports.website_endpoint
+}
 

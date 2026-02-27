@@ -1,9 +1,9 @@
 # ============================================================
-# Deploy Reports to S3 + GitHub Pages
+# Deploy Reports to S3
 #
 # Builds the application to generate fresh JaCoCo + Vitest
-# reports, syncs to S3 bucket (storage) and deploys to
-# GitHub Pages (public viewing).
+# reports, then syncs to the public S3 website bucket
+# created by the "Infra: Create Reports S3" workflow.
 #
 # Can also run after CI/CD pipeline completes (workflow_run).
 #
@@ -21,8 +21,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: deploy-reports
@@ -105,44 +103,18 @@ jobs:
           echo "Uploading reports to s3://$BUCKET"
           aws s3 sync reports/ "s3://$BUCKET" --delete
 
-  deploy-pages:
-    name: Publish to GitHub Pages
-    needs: build-reports
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Download reports artifact
-        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
-        with:
-          name: reports
-          path: reports/
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
-        with:
-          path: reports/
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
-
-      - name: Print reports URLs
+      - name: Print reports URL
         run: |
-          URL="${{ steps.deployment.outputs.page_url }}"
+          BUCKET="naturgy-gas-reports-dev"
+          REGION="${{ steps.clean.outputs.aws_region }}"
+          URL="http://${BUCKET}.s3-website-${REGION}.amazonaws.com"
+
           {
-            echo "## :bar_chart: Reports Published to GitHub Pages"
+            echo "## :bar_chart: Reports Published"
             echo ""
             echo "| Report | Link |"
             echo "|--------|------|"
-            echo "| **Dashboard** | ${URL} |"
-            echo "| JaCoCo (Backend) | ${URL}jacoco/index.html |"
-            echo "| Vitest (Frontend) | ${URL}vitest/index.html |"
+            echo "| **Dashboard** | ${URL}/index.html |"
+            echo "| JaCoCo (Backend) | ${URL}/jacoco/index.html |"
+            echo "| Vitest (Frontend) | ${URL}/vitest/index.html |"
           } >> "$GITHUB_STEP_SUMMARY"
