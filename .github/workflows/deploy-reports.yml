@@ -103,11 +103,26 @@ jobs:
           echo "Uploading reports to s3://$BUCKET"
           aws s3 sync reports/ "s3://$BUCKET" --delete
 
+      - name: Invalidate CloudFront cache
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id" \
+            --output text)
+          if [[ -n "$DIST_ID" && "$DIST_ID" != "None" ]]; then
+            echo "Invalidating CloudFront distribution: $DIST_ID"
+            aws cloudfront create-invalidation \
+              --distribution-id "$DIST_ID" \
+              --paths "/*"
+          else
+            echo "CloudFront distribution not found — skipping invalidation."
+          fi
+
       - name: Print reports URL
         run: |
-          BUCKET="naturgy-gas-reports-dev"
-          REGION="${{ steps.clean.outputs.aws_region }}"
-          URL="http://${BUCKET}.s3-website-${REGION}.amazonaws.com"
+          DOMAIN=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].DomainName" \
+            --output text)
+          URL="https://${DOMAIN}"
 
           {
             echo "## :bar_chart: Reports Published"

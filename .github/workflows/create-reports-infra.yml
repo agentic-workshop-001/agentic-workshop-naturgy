@@ -95,7 +95,8 @@ jobs:
       - name: Show Reports URL
         run: |
           BUCKET=$(terraform -chdir=terraform/reports output -raw reports_bucket_name)
-          URL=$(terraform -chdir=terraform/reports output -raw reports_website_url)
+          URL=$(terraform -chdir=terraform/reports output -raw reports_url)
+          DIST_ID=$(terraform -chdir=terraform/reports output -raw cloudfront_distribution_id)
 
           {
             echo "## :white_check_mark: Reports Infrastructure Created"
@@ -103,7 +104,8 @@ jobs:
             echo "| Resource | Value |"
             echo "|----------|-------|"
             echo "| S3 Bucket | \`$BUCKET\` |"
-            echo "| Website URL | http://$URL |"
+            echo "| CloudFront Distribution | \`$DIST_ID\` |"
+            echo "| Reports URL | $URL |"
             echo ""
             echo "Now run **Deploy: Upload Reports to S3** to upload reports."
           } >> "$GITHUB_STEP_SUMMARY"
