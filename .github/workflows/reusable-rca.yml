@@ -27,11 +27,23 @@ on:
 permissions:
   contents: read
 
+# Prevent duplicate RCA/notification runs for the same branch/ref.
+# Uses a workflow-scoped suffix so this group does not clash with
+# build-test or deploy concurrency groups in the same pipeline run.
+concurrency:
+  group: ${{ github.workflow }}-rca-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   rca:
     name: RCA – ${{ inputs.environment }}
     runs-on: ubuntu-latest
     steps:
+      - name: Mask Slack webhook URL
+        # Prevent the webhook URL from appearing in plain-text in log output.
+        # Masking an empty string (when the secret is unset) is a no-op.
+        run: echo "::add-mask::${{ secrets.slack_webhook_url }}"
+
       # Placeholder – replace with your actual RCA / notification steps
       - name: Summarise pipeline results (placeholder)
         run: |

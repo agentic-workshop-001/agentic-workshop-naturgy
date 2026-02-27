@@ -57,6 +57,13 @@ permissions:
   contents: read
   id-token: write
 
+# Prevent concurrent deploys to the same environment/branch pair.
+# Uses a workflow-scoped suffix so this group does not clash with
+# build-test or rca concurrency groups in the same pipeline run.
+concurrency:
+  group: ${{ github.workflow }}-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ──────────────────────────────────────────────────────────
   # Job 1: Provision / update infrastructure via Terraform
@@ -139,11 +146,14 @@ jobs:
     needs: deploy-infra
 
     steps:
-      - name: Mask ECR secrets
-        # Prevent registry URL and repository name leaking into logs
+      - name: Mask ECR and ECS secrets
+        # Prevent registry URL, repository name, cluster and service names
+        # from appearing in plain-text in log output
         run: |
           echo "::add-mask::${{ secrets.ecr_registry }}"
           echo "::add-mask::${{ secrets.ecr_repository }}"
+          echo "::add-mask::${{ secrets.ecs_cluster }}"
+          echo "::add-mask::${{ secrets.ecs_service }}"
 
       - name: Checkout source
         # Full repo checkout required for Docker build context
@@ -229,12 +239,26 @@ jobs:
           echo "Backend is healthy."
           echo "ALB_URL=$ALB_URL" >> "$GITHUB_ENV"
 
-      - name: Verify frontend accessible
+      - name: Verify frontend accessible (retry up to 3 attempts)
         run: |
           FRONTEND_URL=$(jq -r '.s3_website_url.value // .frontend_url.value' deploy-outputs.json)
           echo "::add-mask::$FRONTEND_URL"
           echo "Checking frontend at $FRONTEND_URL"
-          curl --fail --silent --max-time 10 "$FRONTEND_URL"
+
+          MAX_ATTEMPTS=3
+          SLEEP_SECONDS=15
+          attempt=1
+
+          until curl --fail --silent --max-time 10 "$FRONTEND_URL"; do
+            if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
+              echo "Frontend health check failed after $MAX_ATTEMPTS attempts."
+              exit 1
+            fi
+            echo "Attempt $attempt/$MAX_ATTEMPTS failed – retrying in ${SLEEP_SECONDS}s…"
+            attempt=$((attempt + 1))
+            sleep "$SLEEP_SECONDS"
+          done
+
           echo "Frontend is accessible."
           echo "FRONTEND_URL=$FRONTEND_URL" >> "$GITHUB_ENV"
 
