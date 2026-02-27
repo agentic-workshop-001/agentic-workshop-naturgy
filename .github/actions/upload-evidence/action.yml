@@ -1,0 +1,37 @@
+# ============================================================
+# Composite Action: upload-evidence
+#
+# Uploads a pipeline evidence artifact with standard metadata.
+# Shared by deploy verification and SIT jobs so retention
+# periods and naming conventions are enforced consistently.
+# ============================================================
+
+name: Upload evidence artifact
+description: "Uploads an evidence artifact with consistent metadata and retention."
+
+inputs:
+  name:
+    description: "Artifact name (e.g. deploy-evidence, sit-evidence)"
+    required: true
+  path:
+    description: "File or glob path to upload"
+    required: true
+  retention-days:
+    description: "Number of days to retain the artifact"
+    required: false
+    default: "7"
+  if-no-files-found:
+    description: "Behaviour when no files match: warn | error | ignore"
+    required: false
+    default: "warn"
+
+runs:
+  using: composite
+  steps:
+    - name: Upload evidence artifact
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}
+        retention-days: ${{ inputs.retention-days }}
+        if-no-files-found: ${{ inputs.if-no-files-found }}

@@ -314,3 +314,104 @@ IVA,0.21,2023-01-01
 | GET | `/api/gas/invoices/{id}` | Detalle factura |
 | GET | `/api/gas/invoices/{id}/pdf` | Descargar PDF |
 | DELETE | `/api/gas/invoices/{id}` | Eliminar factura |
+
+---
+
+## 6. Pipeline CI/CD
+
+### 6.1 Configurar GitHub Secrets
+
+Los siguientes secretos deben estar configurados en **Settings → Secrets and variables → Actions** del repositorio:
+
+| Secret | Descripción | Ejemplo |
+|--------|-------------|---------|
+| `AWS_ROLE_TO_ASSUME` | ARN del IAM role con permisos de despliegue (OIDC) | `arn:aws:iam::123456789012:role/github-deploy` |
+| `ECR_REGISTRY` | URL del registro ECR | `123456789012.dkr.ecr.eu-west-1.amazonaws.com` |
+| `ECR_REPOSITORY` | Nombre del repositorio ECR | `gas-backend` |
+| `ECS_CLUSTER` | Nombre del clúster ECS | `gas-cluster` |
+| `ECS_SERVICE` | Nombre del servicio ECS | `gas-backend-service` |
+| `S3_BUCKET` | Nombre del bucket S3 para la UI | `gas-frontend-staging` |
+| `BACKEND_URL` | URL del backend desplegado (para SIT) | `http://my-alb.eu-west-1.elb.amazonaws.com` |
+| `FRONTEND_URL` | URL del frontend desplegado (para SIT) | `http://gas-frontend-staging.s3-website-eu-west-1.amazonaws.com` |
+| `SLACK_WEBHOOK_URL` | Webhook de Slack para notificaciones (opcional) | `https://hooks.slack.com/services/…` |
+
+> **Nota:** Estos secretos se pasan por el workflow orquestador `ci.yml` a los workflows reutilizables. No se exponen en logs gracias a `::add-mask::`.
+
+---
+
+### 6.2 Ejecutar el Pipeline (workflow_dispatch)
+
+Para lanzar el pipeline manualmente desde GitHub:
+
+1. Ir a **Actions → CI/CD Pipeline** en el repositorio.
+2. Clicar **Run workflow**.
+3. Seleccionar los parámetros:
+   - **Branch:** rama a desplegar (por defecto `main`).
+   - **environment:** entorno destino (e.g. `staging`, `production`).
+   - **aws_region:** región AWS (e.g. `eu-west-1`).
+4. Clicar **Run workflow** para confirmar.
+
+El pipeline sigue esta cadena de jobs:
+
+```
+build-test → deploy → sit → rca (always)
+```
+
+Cada job es un workflow reutilizable independiente:
+
+| Workflow | Descripción |
+|----------|-------------|
+| `reusable-build-test.yml` | Compila backend (Maven) y frontend (Vite), ejecuta tests y sube artefactos |
+| `reusable-deploy.yml` | Terraform, S3 sync, ECR push, ECS update, verificación de salud |
+| `reusable-sit.yml` | Tests de integración de sistema contra el entorno desplegado |
+| `reusable-rca.yml` | Notificaciones y resumen post-pipeline (siempre se ejecuta) |
+
+---
+
+### 6.3 Ver Evidencias (Artefactos)
+
+Cada ejecución del pipeline sube artefactos de evidencia:
+
+| Artefacto | Workflow | Retención | Contenido |
+|-----------|----------|-----------|-----------|
+| `backend-jar` | build-test | 7 días | JAR del backend compilado |
+| `test-report-backend` | build-test | 7 días | Informe JaCoCo de cobertura |
+| `frontend-dist` | build-test | 7 días | Build de producción de React |
+| `test-report-frontend` | build-test | 7 días | Informe Vitest de cobertura |
+| `terraform-outputs` | deploy | 7 días | Outputs JSON de Terraform (URLs ALB, S3) |
+| `deploy-evidence` | deploy | 30 días | JSON con URLs, SHA, timestamp y estado |
+| `sit-evidence` | sit | 7 días | `sit-results.json` + `invoice.pdf` (si existe) |
+
+Para descargar artefactos:
+1. Ir a **Actions → [ejecución concreta]**.
+2. Hacer scroll hasta la sección **Artifacts**.
+3. Clicar en el artefacto para descargarlo como ZIP.
+
+---
+
+### 6.4 Troubleshooting
+
+#### ❌ `configure-aws-credentials` falla — "Could not assume role"
+- Verificar que el IAM role en `AWS_ROLE_TO_ASSUME` tiene configurado el trust policy para el repositorio correcto.
+- El subject del OIDC token debe coincidir: `repo:<org>/<repo>:ref:refs/heads/main` (o el ref correspondiente).
+- Consultar los logs del step **Configure AWS credentials (OIDC)** para el ARN exacto intentado.
+
+#### ❌ `Terraform apply` falla
+- Revisar los outputs del step **Terraform plan** para ver los cambios previstos.
+- Asegurarse de que el role IAM tiene permisos sobre los recursos Terraform (ECS, ECR, ALB, S3, IAM).
+- Si el estado de Terraform está bloqueado, ejecutar `terraform force-unlock <ID>` localmente.
+
+#### ❌ `aws ecs wait services-stable` timeout
+- El servicio ECS puede tardar hasta 10 minutos en estabilizarse tras un despliegue.
+- Revisar los logs de las tasks ECS en la consola AWS para ver si hay errores de arranque del contenedor.
+- Verificar que la imagen Docker se ha subido correctamente al ECR.
+
+#### ❌ Health check backend falla (5 intentos)
+- Comprobar que el ALB listener está configurado para el puerto correcto (8080).
+- Verificar que el security group del ALB permite tráfico HTTP entrante.
+- Revisar `/actuator/health` en los logs de la task ECS.
+
+#### ❌ SIT tests fallan
+- Los artefactos `sit-evidence` contienen `sit-results.json` con el detalle de cada test.
+- Verificar que `BACKEND_URL` y `FRONTEND_URL` apuntan al entorno correcto.
+- Ejecutar `scripts/sit-tests.sh` localmente apuntando al entorno para reproducir el fallo.
