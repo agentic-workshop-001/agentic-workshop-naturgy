@@ -103,7 +103,7 @@ jobs:
           echo "Uploading reports to s3://$BUCKET"
           aws s3 sync reports/ "s3://$BUCKET" --delete
 
-      - name: Generate presigned URLs and print summary
+      - name: Generate presigned URLs
         run: |
           BUCKET="naturgy-gas-reports-dev"
           EXPIRES=604800  # 7 days
@@ -112,20 +112,32 @@ jobs:
           JACOCO=$(aws s3 presign "s3://$BUCKET/jacoco/index.html" --expires-in $EXPIRES)
           VITEST=$(aws s3 presign "s3://$BUCKET/vitest/index.html" --expires-in $EXPIRES)
 
-          echo "::group::Presigned URLs (valid 7 days)"
-          echo "Dashboard: $DASHBOARD"
-          echo "JaCoCo:    $JACOCO"
-          echo "Vitest:    $VITEST"
-          echo "::endgroup::"
+          # Write clickable HTML page (artifact contents are NOT masked)
+          cat > report-urls.html <<EOF
+          <!DOCTYPE html>
+          <html><head><title>Naturgy Reports</title></head>
+          <body style="font-family:sans-serif;max-width:600px;margin:40px auto">
+          <h2>Naturgy Gas — Test Reports</h2>
+          <p>Links valid for <strong>7 days</strong></p>
+          <ul>
+            <li><a href="$DASHBOARD">Dashboard</a></li>
+            <li><a href="$JACOCO">JaCoCo — Backend Coverage</a></li>
+            <li><a href="$VITEST">Vitest — Frontend Coverage</a></li>
+          </ul>
+          </body></html>
+          EOF
 
+          # Step summary (may be partially masked by Actions)
           {
             echo "## :bar_chart: Reports Published"
             echo ""
-            echo "Links valid for **7 days** (presigned URLs):"
-            echo ""
-            echo "| Report | Link |"
-            echo "|--------|------|"
-            echo "| **Dashboard** | [Open]($DASHBOARD) |"
-            echo "| JaCoCo (Backend) | [Open]($JACOCO) |"
-            echo "| Vitest (Frontend) | [Open]($VITEST) |"
+            echo "Download the **report-urls** artifact for clickable links."
+            echo "(Presigned URLs are masked in logs/summary by GitHub Actions.)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report URLs artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: report-urls
+          path: report-urls.html
+          retention-days: 7
