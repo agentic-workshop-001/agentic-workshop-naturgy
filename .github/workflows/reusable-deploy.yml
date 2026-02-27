@@ -54,17 +54,25 @@ jobs:
       s3_bucket: ${{ steps.tf-out.outputs.s3_bucket }}
       ecs_cluster: ${{ steps.tf-out.outputs.ecs_cluster }}
       ecs_service: ${{ steps.tf-out.outputs.ecs_service }}
+      aws_region: ${{ steps.clean.outputs.aws_region }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Sanitise secrets (strip trailing whitespace/newlines)
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials
         uses: ./.github/actions/aws-auth
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
@@ -78,7 +86,7 @@ jobs:
         run: |
           terraform -chdir=terraform plan \
             -var="environment=${{ inputs.environment }}" \
-            -var="aws_region=${{ secrets.AWS_REGION }}" \
+            -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
             -out=tfplan
 
       - name: Terraform apply
@@ -115,7 +123,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ needs.deploy-infra.outputs.aws_region }}
 
       - name: Sync frontend dist to S3
         run: |
@@ -139,7 +147,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ needs.deploy-infra.outputs.aws_region }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@4625ce35226a7557230889aae2f52eb50ec3dcda # v2.0.1
