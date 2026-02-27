@@ -8,10 +8,9 @@ terraform {
     }
   }
 
-  # State stored in S3 — bucket and region injected via -backend-config at init time
-  backend "s3" {
-    key = "reports/terraform.tfstate"
-  }
+  # Local backend — state is ephemeral per workflow run.
+  # For a POC this is acceptable; production should use S3 backend.
+  backend "local" {}
 }
 
 provider "aws" {

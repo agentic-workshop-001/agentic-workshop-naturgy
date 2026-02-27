@@ -50,40 +50,26 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ steps.clean.outputs.aws_region }}
 
-      - name: Create Terraform state bucket (idempotent)
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          STATE_BUCKET="naturgy-gas-tfstate-${ACCOUNT_ID}"
-          echo "STATE_BUCKET=$STATE_BUCKET" >> "$GITHUB_ENV"
-
-          # head-bucket returns 0 if exists+access, 403 if exists but no ListBucket, 404 if not found
-          HTTP_CODE=$(aws s3api head-bucket --bucket "$STATE_BUCKET" 2>&1 || true)
-          if echo "$HTTP_CODE" | grep -q "404\|Not Found\|NoSuchBucket"; then
-            echo "Bucket does not exist — creating: $STATE_BUCKET"
-            aws s3api create-bucket \
-              --bucket "$STATE_BUCKET" \
-              --region "${{ steps.clean.outputs.aws_region }}" \
-              --create-bucket-configuration LocationConstraint="${{ steps.clean.outputs.aws_region }}"
-          else
-            echo "State bucket already exists (or access restricted): $STATE_BUCKET — skipping creation"
-          fi
-
-          # Ensure tags are up-to-date (best-effort, non-fatal)
-          aws s3api put-bucket-tagging \
-            --bucket "$STATE_BUCKET" \
-            --tagging 'TagSet=[{Key=Application,Value=poc-naturgy},{Key=Project,Value=naturgy-gas},{Key=Environment,Value=${{ inputs.environment }}},{Key=ManagedBy,Value=github-actions},{Key=Purpose,Value=terraform-state}]' \
-          || echo "::warning::Could not update state bucket tags (permission denied) — continuing"
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
 
       - name: Terraform init
+        run: terraform -chdir=terraform/reports init
+
+      - name: Import existing S3 bucket (if any)
         run: |
-          terraform -chdir=terraform/reports init \
-            -backend-config="bucket=$STATE_BUCKET" \
-            -backend-config="region=${{ steps.clean.outputs.aws_region }}"
+          BUCKET_NAME="naturgy-gas-reports-${{ inputs.environment }}"
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            echo "Bucket $BUCKET_NAME exists — importing into Terraform state"
+            terraform -chdir=terraform/reports import \
+              -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+              -var="environment=${{ inputs.environment }}" \
+              aws_s3_bucket.reports "$BUCKET_NAME" || echo "::warning::Import failed (may already be in state)"
+          else
+            echo "Bucket $BUCKET_NAME does not exist — will be created by Terraform"
+          fi
 
       - name: Terraform plan
         run: |
