@@ -1,13 +1,9 @@
 # ============================================================
-# Main CI/CD Orchestrator
+# Main CI/CD Pipeline
 #
-# Current scope: Build & Test only.
-# Deploy, SIT and RCA stages are defined but disabled until
-# full AWS infrastructure (VPC/ECS/ALB) is provisioned.
-#
-# Reports deployment is handled by separate workflows:
-#   - "Infra: Create Reports S3"   → creates S3 bucket
-#   - "Deploy: Upload Reports to S3" → uploads reports
+# Builds and tests backend (Java 17) + frontend (Node 20).
+# Reports deployment is handled by separate workflows created
+# by Copilot agents — see demo.sh to launch the full flow.
 # ============================================================
 
 name: CI/CD Pipeline
@@ -26,49 +22,8 @@ permissions:
   contents: read
 
 jobs:
-  # ── Stage 1: Build & Test (parallel backend + frontend) ─────────────────
   build-test:
     name: Build & Test
     uses: ./.github/workflows/reusable-build-test.yml
     permissions:
       contents: read
-
-  # ── Stages 2-4 disabled until full infra is provisioned ─────────────────
-  # To enable: uncomment the jobs below and ensure AWS infra exists
-  # (VPC, ECR, ECS Fargate, ALB via terraform/ root module).
-  #
-  # deploy:
-  #   name: Deploy to AWS
-  #   needs: build-test
-  #   if: github.event_name != 'pull_request'
-  #   uses: ./.github/workflows/reusable-deploy.yml
-  #   permissions:
-  #     contents: read
-  #   secrets: inherit
-  #   with:
-  #     environment: staging
-  #
-  # sit:
-  #   name: SIT
-  #   needs: deploy
-  #   uses: ./.github/workflows/reusable-sit.yml
-  #   permissions:
-  #     contents: read
-  #   with:
-  #     environment: staging
-  #     backend_url: ${{ needs.deploy.outputs.backend_url }}
-  #     frontend_url: ${{ needs.deploy.outputs.frontend_url }}
-  #
-  # rca:
-  #   name: RCA
-  #   needs: [build-test, deploy, sit]
-  #   if: always()
-  #   uses: ./.github/workflows/reusable-rca.yml
-  #   permissions:
-  #     contents: read
-  #   secrets: inherit
-  #   with:
-  #     environment: staging
-  #     build_result: ${{ needs.build-test.result }}
-  #     deploy_result: ${{ needs.deploy.result }}
-  #     sit_result: ${{ needs.sit.result }}
