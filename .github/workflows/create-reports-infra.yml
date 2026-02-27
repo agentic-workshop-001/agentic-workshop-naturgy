@@ -1,0 +1,94 @@
+# ============================================================
+# Infra: Create Reports S3
+#
+# Provisions the Terraform module at terraform/reports/ which
+# creates the S3 bucket and CloudFront distribution used to
+# host test reports (JaCoCo + Vitest).
+# ============================================================
+
+name: "Infra: Create Reports S3"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment (e.g. dev, staging)"
+        required: true
+        default: "dev"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reports-infra
+  cancel-in-progress: false
+
+jobs:
+  terraform-reports-s3:
+    name: "Terraform – Reports S3"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform/reports
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+          role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Import existing S3 bucket (idempotent)
+        run: |
+          BUCKET_NAME="naturgy-gas-reports-${{ inputs.environment }}"
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            terraform import aws_s3_bucket.reports "$BUCKET_NAME" || true
+          fi
+
+      - name: Terraform plan
+        run: |
+          terraform plan \
+            -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+            -var="environment=${{ inputs.environment }}" \
+            -out=tfplan
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Show Reports URL in Job Summary
+        run: |
+          BUCKET_NAME="naturgy-gas-reports-${{ inputs.environment }}"
+          DIST_ID="$(terraform output -raw cloudfront_distribution_id 2>/dev/null || echo 'N/A')"
+          CF_DOMAIN="$(terraform output -raw cloudfront_domain_name 2>/dev/null || echo 'N/A')"
+          {
+            echo "## Reports Infrastructure"
+            echo ""
+            echo "| Resource | Value |"
+            echo "| -------- | ----- |"
+            echo "| S3 Bucket | \`$BUCKET_NAME\` |"
+            echo "| CloudFront Distribution ID | \`$DIST_ID\` |"
+            echo "| Reports URL | https://$CF_DOMAIN |"
+          } >> "$GITHUB_STEP_SUMMARY"

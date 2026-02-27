@@ -1,0 +1,161 @@
+# ============================================================
+# Deploy: Upload Reports to S3
+#
+# Generates JaCoCo (backend) and Vitest (frontend) test
+# reports, then uploads them to the S3 bucket managed by the
+# "Infra: Create Reports S3" workflow and invalidates the
+# CloudFront cache so the latest results are immediately
+# available via the distribution URL.
+# ============================================================
+
+name: "Deploy: Upload Reports to S3"
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-reports
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Job 1: Build backend + frontend and collect reports
+  # ──────────────────────────────────────────────────────────
+  build-reports:
+    name: Generate Reports
+    runs-on: ubuntu-latest
+    # Run on manual dispatch OR when the triggering workflow succeeded
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Java 17 (temurin, Maven cache)
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Build backend and run tests (JaCoCo)
+        working-directory: backend
+        run: mvn clean verify -B
+
+      - name: Copy JaCoCo report to reports/jacoco
+        run: |
+          mkdir -p reports/jacoco
+          cp -r backend/target/site/jacoco/. reports/jacoco/
+
+      - name: Set up Node 20 (npm cache)
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run frontend tests with coverage (Vitest → reports/vitest)
+        working-directory: frontend
+        run: npm run test:coverage
+
+      - name: Upload reports artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reports
+          path: reports/
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2: Upload reports to S3 and invalidate CloudFront
+  # ──────────────────────────────────────────────────────────
+  upload-reports:
+    name: Upload Reports to S3
+    runs-on: ubuntu-latest
+    needs: build-reports
+
+    steps:
+      - name: Download reports artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: reports
+          path: reports/
+
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+          role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Sync reports to S3
+        run: |
+          aws s3 sync reports/ s3://naturgy-gas-reports-dev --delete
+
+      - name: Invalidate CloudFront cache
+        id: invalidate
+        run: |
+          # Identify the distribution by its comment field
+          DIST_ID="$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id | [0]" \
+            --output text)"
+          if [ -z "$DIST_ID" ] || [ "$DIST_ID" = "None" ]; then
+            echo "CloudFront distribution not found — skipping invalidation"
+          else
+            aws cloudfront create-invalidation \
+              --distribution-id "$DIST_ID" \
+              --paths "/*"
+            echo "dist_id=$DIST_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Retrieve CloudFront domain
+        id: domain
+        run: |
+          DIST_ID="${{ steps.invalidate.outputs.dist_id }}"
+          if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
+            CF_DOMAIN="$(aws cloudfront get-distribution \
+              --id "$DIST_ID" \
+              --query "Distribution.DomainName" \
+              --output text)"
+            echo "cf_domain=$CF_DOMAIN" >> "$GITHUB_OUTPUT"
+          else
+            echo "cf_domain=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Print reports URLs in Job Summary
+        run: |
+          CF_DOMAIN="${{ steps.domain.outputs.cf_domain }}"
+          if [ -n "$CF_DOMAIN" ]; then
+            BASE="https://$CF_DOMAIN"
+          else
+            BASE="s3://naturgy-gas-reports-dev"
+          fi
+          {
+            echo "## Test Reports"
+            echo ""
+            echo "| Report | URL |"
+            echo "| ------ | --- |"
+            echo "| Dashboard | $BASE/index.html |"
+            echo "| JaCoCo (backend) | $BASE/jacoco/index.html |"
+            echo "| Vitest (frontend) | $BASE/vitest/index.html |"
+          } >> "$GITHUB_STEP_SUMMARY"
