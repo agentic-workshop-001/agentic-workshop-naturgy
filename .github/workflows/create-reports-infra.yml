@@ -56,20 +56,23 @@ jobs:
           STATE_BUCKET="naturgy-gas-tfstate-${ACCOUNT_ID}"
           echo "STATE_BUCKET=$STATE_BUCKET" >> "$GITHUB_ENV"
 
-          if aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null; then
-            echo "State bucket already exists: $STATE_BUCKET"
-          else
-            echo "Creating state bucket: $STATE_BUCKET"
+          # head-bucket returns 0 if exists+access, 403 if exists but no ListBucket, 404 if not found
+          HTTP_CODE=$(aws s3api head-bucket --bucket "$STATE_BUCKET" 2>&1 || true)
+          if echo "$HTTP_CODE" | grep -q "404\|Not Found\|NoSuchBucket"; then
+            echo "Bucket does not exist — creating: $STATE_BUCKET"
             aws s3api create-bucket \
               --bucket "$STATE_BUCKET" \
               --region "${{ steps.clean.outputs.aws_region }}" \
               --create-bucket-configuration LocationConstraint="${{ steps.clean.outputs.aws_region }}"
+          else
+            echo "State bucket already exists (or access restricted): $STATE_BUCKET — skipping creation"
           fi
 
-          # Ensure tags are up-to-date (idempotent)
+          # Ensure tags are up-to-date (best-effort, non-fatal)
           aws s3api put-bucket-tagging \
             --bucket "$STATE_BUCKET" \
-            --tagging 'TagSet=[{Key=Application,Value=poc-naturgy},{Key=Project,Value=naturgy-gas},{Key=Environment,Value=${{ inputs.environment }}},{Key=ManagedBy,Value=github-actions},{Key=Purpose,Value=terraform-state}]'
+            --tagging 'TagSet=[{Key=Application,Value=poc-naturgy},{Key=Project,Value=naturgy-gas},{Key=Environment,Value=${{ inputs.environment }}},{Key=ManagedBy,Value=github-actions},{Key=Purpose,Value=terraform-state}]' \
+          || echo "::warning::Could not update state bucket tags (permission denied) — continuing"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
