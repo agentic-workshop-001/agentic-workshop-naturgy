@@ -2,26 +2,23 @@
 # Main CI/CD Orchestrator
 #
 # Required GitHub Secrets:
-#   AWS_ROLE_TO_ASSUME   – ARN of the IAM role to assume via OIDC
-#   AWS_REGION           – Default AWS region (e.g. eu-west-1)
-#   ECR_REGISTRY         – ECR registry URL (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com)
-#   ECR_REPOSITORY       – ECR repository name (e.g. gas-backend)
-#   ECS_CLUSTER          – ECS cluster name
-#   ECS_SERVICE          – ECS service name
-#   S3_BUCKET            – S3 bucket name for frontend static assets
+#   AWS_ACCESS_KEY_ID    – IAM access key for AWS authentication
+#   AWS_SECRET_ACCESS_KEY – IAM secret key for AWS authentication
+#   AWS_REGION           – Default AWS region (eu-west-1)
+#   AWS_ACCOUNT_ID       – AWS account ID (for ECR URL construction)
 #
-# Optional GitHub Secrets (used by downstream reusable workflows):
-#   BACKEND_URL          – Base URL of the deployed backend ALB (used by SIT)
-#   FRONTEND_URL         – URL of the deployed frontend S3 site  (used by SIT)
-#   SLACK_WEBHOOK_URL    – Webhook for RCA notifications
+# Optional GitHub Secrets:
+#   SLACK_WEBHOOK_URL    – Webhook for RCA/failure notifications
+#
+# Infrastructure values (ECR URL, S3 bucket, ECS cluster/service, ALB URL)
+# are derived automatically from Terraform outputs — no extra secrets needed.
 # ============================================================
 
 name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -30,26 +27,23 @@ on:
         required: false
         default: "staging"
         type: string
-      aws_region:
-        description: "AWS region to deploy to"
-        required: false
-        default: "eu-west-1"
-        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.environment || 'staging' }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  # ── Stage 1: Build & Test (parallel backend + frontend) ─────────────────
   build-test:
     name: Build & Test
     uses: ./.github/workflows/reusable-build-test.yml
     permissions:
       contents: read
 
+  # ── Stage 2: Deploy to AWS (Terraform + S3 + ECR/ECS) ──────────────────
   deploy:
     name: Deploy to AWS
     needs: build-test
@@ -57,18 +51,11 @@ jobs:
     uses: ./.github/workflows/reusable-deploy.yml
     permissions:
       contents: read
-      id-token: write
+    secrets: inherit
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
-      aws_region: ${{ github.event.inputs.aws_region || 'eu-west-1' }}
-    secrets:
-      aws_role_to_assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-      ecr_registry: ${{ secrets.ECR_REGISTRY }}
-      ecr_repository: ${{ secrets.ECR_REPOSITORY }}
-      ecs_cluster: ${{ secrets.ECS_CLUSTER }}
-      ecs_service: ${{ secrets.ECS_SERVICE }}
-      s3_bucket: ${{ secrets.S3_BUCKET }}
 
+  # ── Stage 3: System Integration Tests ───────────────────────────────────
   sit:
     name: SIT
     needs: deploy
@@ -77,24 +64,20 @@ jobs:
       contents: read
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
-    secrets:
-      backend_url: ${{ secrets.BACKEND_URL }}
-      frontend_url: ${{ secrets.FRONTEND_URL }}
+      backend_url: ${{ needs.deploy.outputs.backend_url }}
+      frontend_url: ${{ needs.deploy.outputs.frontend_url }}
 
+  # ── Stage 4: RCA & Notifications (always runs) ─────────────────────────
   rca:
     name: RCA
-    needs:
-      - build-test
-      - deploy
-      - sit
+    needs: [build-test, deploy, sit]
     if: always()
     uses: ./.github/workflows/reusable-rca.yml
     permissions:
       contents: read
+    secrets: inherit
     with:
       environment: ${{ github.event.inputs.environment || 'staging' }}
-      build_test_result: ${{ needs.build-test.result }}
+      build_result: ${{ needs.build-test.result }}
       deploy_result: ${{ needs.deploy.result }}
       sit_result: ${{ needs.sit.result }}
-    secrets:
-      slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -8,20 +8,20 @@ on:
         required: false
         type: string
         default: "staging"
-    secrets:
       backend_url:
-        description: "Base URL of the deployed backend (ALB) — e.g. http://my-alb.region.elb.amazonaws.com"
+        description: "Base URL of the deployed backend (ALB) — from Terraform outputs"
         required: true
+        type: string
       frontend_url:
-        description: "URL of the deployed frontend (S3 static site)"
+        description: "URL of the deployed frontend (S3 static site) — from Terraform outputs"
         required: true
+        type: string
 
-# Minimal permissions — this workflow only reads source code and uploads evidence.
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: sit-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -32,21 +32,27 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Mask URLs
+        run: |
+          echo "::add-mask::${{ inputs.backend_url }}"
+          echo "::add-mask::${{ inputs.frontend_url }}"
+
       - name: Make SIT test script executable
         run: chmod +x scripts/sit-tests.sh
 
       - name: Run SIT tests
         env:
-          BACKEND_URL: ${{ secrets.backend_url }}
-          FRONTEND_URL: ${{ secrets.frontend_url }}
+          BACKEND_URL: ${{ inputs.backend_url }}
+          FRONTEND_URL: ${{ inputs.frontend_url }}
         run: ./scripts/sit-tests.sh
 
-      # Upload evidence even when the SIT step fails so engineers can diagnose failures.
       - name: Upload SIT evidence artifacts
         if: always()
-        uses: ./.github/actions/upload-evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sit-evidence
           path: |
             sit-results.json
             invoice.pdf
+          if-no-files-found: warn
+          retention-days: 7

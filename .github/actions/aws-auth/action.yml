@@ -1,17 +1,22 @@
 # ============================================================
 # Composite Action: aws-auth
 #
-# Configures AWS credentials via OIDC for GitHub Actions jobs.
+# Configures AWS credentials using static access keys.
 # Centralises the configure-aws-credentials step so that all
 # deploy, verify and SIT jobs share a single, auditable pin.
+#
+# TODO: Migrate to OIDC when IAM Identity Provider is configured.
 # ============================================================
 
-name: Configure AWS credentials (OIDC)
-description: "Assumes an IAM role via OIDC and configures AWS credentials for the current job."
+name: Configure AWS credentials
+description: "Configures AWS credentials using static access keys for the current job."
 
 inputs:
-  role-to-assume:
-    description: "ARN of the IAM role to assume via OIDC"
+  aws-access-key-id:
+    description: "AWS Access Key ID"
+    required: true
+  aws-secret-access-key:
+    description: "AWS Secret Access Key"
     required: true
   aws-region:
     description: "AWS region to target"
@@ -20,8 +25,15 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Configure AWS credentials (OIDC)
+    - name: Mask AWS credentials
+      shell: bash
+      run: |
+        echo "::add-mask::${{ inputs.aws-access-key-id }}"
+        echo "::add-mask::${{ inputs.aws-secret-access-key }}"
+
+    - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
       with:
-        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
         aws-region: ${{ inputs.aws-region }}

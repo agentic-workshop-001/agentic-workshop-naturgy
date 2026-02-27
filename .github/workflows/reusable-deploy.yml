@@ -2,21 +2,18 @@
 # Reusable Deploy Workflow
 #
 # Deploys the Naturgy Gas Workshop application to AWS:
-#   1. deploy-infra   – Terraform plan + apply
-#   2. deploy-frontend – Sync React/Vite dist to S3 (parallel with deploy-backend)
+#   1. deploy-infra    – Terraform plan + apply → outputs ECR/ECS/S3/ALB values
+#   2. deploy-frontend – Sync React/Vite dist to S3 (parallel with backend)
 #   3. deploy-backend  – Build & push Docker image, update ECS Fargate service
 #   4. verify-deploy   – ALB + S3 health checks, upload deploy evidence
 #
-# Required secrets (passed by caller):
-#   aws_role_to_assume  – IAM role ARN for OIDC authentication
-#   ecr_registry        – ECR registry URL (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com)
-#   ecr_repository      – ECR repository name (e.g. gas-backend)
-#   ecs_cluster         – ECS cluster name
-#   ecs_service         – ECS service name
-#   s3_bucket           – S3 bucket name for frontend static assets
+# All infrastructure values (ECR URL, S3 bucket, ECS cluster/service, ALB URL)
+# are derived from Terraform outputs — no extra secrets needed beyond AWS creds.
 #
-# TODO: Migrate AWS auth from long-lived keys to OIDC when IAM roles are available.
-#       Replace role-to-assume with the OIDC role ARN and remove static key secrets.
+# Required secrets (via secrets: inherit from caller):
+#   AWS_ACCESS_KEY_ID     – IAM access key
+#   AWS_SECRET_ACCESS_KEY – IAM secret key
+#   AWS_REGION            – AWS region (eu-west-1)
 # ============================================================
 
 name: Reusable – Deploy to AWS
@@ -28,40 +25,19 @@ on:
         description: "Target deployment environment (e.g. staging, production)"
         required: true
         type: string
-      aws_region:
-        description: "AWS region to deploy to"
-        required: true
-        type: string
-    secrets:
-      aws_role_to_assume:
-        description: "ARN of the IAM role to assume via OIDC"
-        required: true
-      ecr_registry:
-        description: "ECR registry URL (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com)"
-        required: true
-      ecr_repository:
-        description: "ECR repository name (e.g. gas-backend)"
-        required: true
-      ecs_cluster:
-        description: "ECS cluster name"
-        required: true
-      ecs_service:
-        description: "ECS service name"
-        required: true
-      s3_bucket:
-        description: "S3 bucket name for frontend static assets"
-        required: true
+    outputs:
+      backend_url:
+        description: "ALB URL for the backend API"
+        value: ${{ jobs.deploy-infra.outputs.backend_url }}
+      frontend_url:
+        description: "S3 website URL for the frontend"
+        value: ${{ jobs.deploy-infra.outputs.frontend_url }}
 
-# Minimal permissions: checkout needs contents:read; OIDC auth needs id-token:write
 permissions:
   contents: read
-  id-token: write
 
-# Prevent concurrent deploys to the same environment/branch pair.
-# Uses a workflow-scoped suffix so this group does not clash with
-# build-test or rca concurrency groups in the same pipeline run.
 concurrency:
-  group: ${{ github.workflow }}-deploy-${{ github.ref }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -71,70 +47,80 @@ jobs:
   deploy-infra:
     name: Terraform – ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    outputs:
+      backend_url: ${{ steps.tf-out.outputs.backend_url }}
+      frontend_url: ${{ steps.tf-out.outputs.frontend_url }}
+      ecr_url: ${{ steps.tf-out.outputs.ecr_url }}
+      s3_bucket: ${{ steps.tf-out.outputs.s3_bucket }}
+      ecs_cluster: ${{ steps.tf-out.outputs.ecs_cluster }}
+      ecs_service: ${{ steps.tf-out.outputs.ecs_service }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials
         uses: ./.github/actions/aws-auth
         with:
-          role-to-assume: ${{ secrets.aws_role_to_assume }}
-          aws-region: ${{ inputs.aws_region }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269ef065 # v3.1.2
+        with:
+          terraform_wrapper: false
 
       - name: Terraform init
         run: terraform -chdir=terraform init
 
       - name: Terraform plan
-        run: terraform -chdir=terraform plan -out=tfplan
+        run: |
+          terraform -chdir=terraform plan \
+            -var="environment=${{ inputs.environment }}" \
+            -var="aws_region=${{ secrets.AWS_REGION }}" \
+            -out=tfplan
 
       - name: Terraform apply
         run: terraform -chdir=terraform apply -auto-approve tfplan
 
-      - name: Capture Terraform outputs
-        # Outputs consumed by verify-deploy to obtain ALB URL and S3 website URL
-        run: terraform -chdir=terraform output -json > deploy-outputs.json
-
-      - name: Upload Terraform outputs artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: terraform-outputs
-          path: deploy-outputs.json
-          retention-days: 7
+      - name: Export Terraform outputs
+        id: tf-out
+        run: |
+          cd terraform
+          echo "backend_url=$(terraform output -raw backend_url)" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=$(terraform output -raw frontend_url)" >> "$GITHUB_OUTPUT"
+          echo "ecr_url=$(terraform output -raw ecr_repository_url)" >> "$GITHUB_OUTPUT"
+          echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> "$GITHUB_OUTPUT"
+          echo "ecs_cluster=$(terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "ecs_service=$(terraform output -raw ecs_service_name)" >> "$GITHUB_OUTPUT"
 
   # ──────────────────────────────────────────────────────────
-  # Job 2: Sync React/Vite build to S3 (runs in parallel with deploy-backend)
+  # Job 2: Sync React/Vite build to S3 (parallel with backend)
   # ──────────────────────────────────────────────────────────
   deploy-frontend:
     name: Deploy Frontend – ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
     needs: deploy-infra
 
     steps:
-      - name: Mask S3 bucket secret
-        # Prevent the bucket name from appearing in plain-text in log output
-        run: echo "::add-mask::${{ secrets.s3_bucket }}"
-
       - name: Download frontend-dist artifact
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: frontend-dist
-          path: frontend/dist/
+          path: dist/
 
-      - name: Configure AWS credentials (OIDC)
-        uses: ./.github/actions/aws-auth
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
-          role-to-assume: ${{ secrets.aws_role_to_assume }}
-          aws-region: ${{ inputs.aws_region }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Sync frontend dist to S3
-        # --delete removes stale files from the bucket that are no longer in the dist
-        run: aws s3 sync frontend/dist/ s3://${{ secrets.s3_bucket }} --delete
+        run: |
+          echo "::add-mask::${{ needs.deploy-infra.outputs.s3_bucket }}"
+          aws s3 sync dist/ "s3://${{ needs.deploy-infra.outputs.s3_bucket }}" --delete
 
   # ──────────────────────────────────────────────────────────
   # Job 3: Build Docker image, push to ECR, update ECS service
@@ -142,145 +128,109 @@ jobs:
   deploy-backend:
     name: Deploy Backend – ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
     needs: deploy-infra
 
     steps:
-      - name: Mask ECR and ECS secrets
-        # Prevent registry URL, repository name, cluster and service names
-        # from appearing in plain-text in log output
-        run: |
-          echo "::add-mask::${{ secrets.ecr_registry }}"
-          echo "::add-mask::${{ secrets.ecr_repository }}"
-          echo "::add-mask::${{ secrets.ecs_cluster }}"
-          echo "::add-mask::${{ secrets.ecs_service }}"
-
       - name: Checkout source
-        # Full repo checkout required for Docker build context
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Configure AWS credentials (OIDC)
-        uses: ./.github/actions/aws-auth
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
-          role-to-assume: ${{ secrets.aws_role_to_assume }}
-          aws-region: ${{ inputs.aws_region }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
       - name: Build Docker image
         run: |
-          docker build \
-            -t ${{ secrets.ecr_registry }}/${{ secrets.ecr_repository }}:${{ github.sha }} \
-            .
+          IMAGE="${{ needs.deploy-infra.outputs.ecr_url }}:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker tag "$IMAGE" "${{ needs.deploy-infra.outputs.ecr_url }}:latest"
 
       - name: Push Docker image to ECR
         run: |
-          docker push \
-            ${{ secrets.ecr_registry }}/${{ secrets.ecr_repository }}:${{ github.sha }}
+          docker push "${{ needs.deploy-infra.outputs.ecr_url }}:${{ github.sha }}"
+          docker push "${{ needs.deploy-infra.outputs.ecr_url }}:latest"
 
       - name: Update ECS service with new image
-        # force-new-deployment triggers a rolling update using the newly pushed image
         run: |
           aws ecs update-service \
-            --cluster ${{ secrets.ecs_cluster }} \
-            --service ${{ secrets.ecs_service }} \
+            --cluster "${{ needs.deploy-infra.outputs.ecs_cluster }}" \
+            --service "${{ needs.deploy-infra.outputs.ecs_service }}" \
             --force-new-deployment
 
       - name: Wait for ECS service stability
-        # Blocks until all running tasks use the new task definition (up to ~10 min by default)
         run: |
           aws ecs wait services-stable \
-            --cluster ${{ secrets.ecs_cluster }} \
-            --services ${{ secrets.ecs_service }}
+            --cluster "${{ needs.deploy-infra.outputs.ecs_cluster }}" \
+            --services "${{ needs.deploy-infra.outputs.ecs_service }}"
 
   # ──────────────────────────────────────────────────────────
-  # Job 4: Health checks + deploy evidence (runs after both deploy jobs)
+  # Job 4: Health checks + deploy evidence
   # ──────────────────────────────────────────────────────────
   verify-deploy:
     name: Verify Deploy – ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    needs: [deploy-frontend, deploy-backend]
+    needs: [deploy-infra, deploy-frontend, deploy-backend]
 
     steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: ./.github/actions/aws-auth
-        with:
-          role-to-assume: ${{ secrets.aws_role_to_assume }}
-          aws-region: ${{ inputs.aws_region }}
-
-      - name: Download Terraform outputs artifact
-        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
-        with:
-          name: terraform-outputs
-
       - name: Health check backend (retry up to 5 attempts)
-        # Retries with 30 s sleep to allow ALB/ECS warm-up after deployment
         run: |
-          ALB_URL=$(jq -r '.alb_url.value // .alb_dns_name.value' deploy-outputs.json)
+          ALB_URL="${{ needs.deploy-infra.outputs.backend_url }}"
           echo "::add-mask::$ALB_URL"
-          echo "Checking backend health at http://$ALB_URL/actuator/health"
+          echo "Checking backend at ${ALB_URL}/api/gas/supply-points"
 
-          MAX_ATTEMPTS=5
-          SLEEP_SECONDS=30
-          attempt=1
-
-          until curl --fail --silent --max-time 10 "http://$ALB_URL/actuator/health"; do
-            if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
-              echo "Backend health check failed after $MAX_ATTEMPTS attempts."
-              exit 1
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --max-time 10 "${ALB_URL}/api/gas/supply-points" > /dev/null; then
+              echo "Backend is healthy (attempt $attempt)."
+              exit 0
             fi
-            echo "Attempt $attempt/$MAX_ATTEMPTS failed – retrying in ${SLEEP_SECONDS}s…"
-            attempt=$((attempt + 1))
-            sleep "$SLEEP_SECONDS"
+            echo "Attempt $attempt/5 failed – retrying in 30s…"
+            sleep 30
           done
-
-          echo "Backend is healthy."
-          echo "ALB_URL=$ALB_URL" >> "$GITHUB_ENV"
+          echo "Backend health check failed after 5 attempts."
+          exit 1
 
       - name: Verify frontend accessible (retry up to 3 attempts)
         run: |
-          FRONTEND_URL=$(jq -r '.s3_website_url.value // .frontend_url.value' deploy-outputs.json)
+          FRONTEND_URL="${{ needs.deploy-infra.outputs.frontend_url }}"
           echo "::add-mask::$FRONTEND_URL"
           echo "Checking frontend at $FRONTEND_URL"
 
-          MAX_ATTEMPTS=3
-          SLEEP_SECONDS=15
-          attempt=1
-
-          until curl --fail --silent --max-time 10 "$FRONTEND_URL"; do
-            if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
-              echo "Frontend health check failed after $MAX_ATTEMPTS attempts."
-              exit 1
+          for attempt in 1 2 3; do
+            if curl --fail --silent --max-time 10 "$FRONTEND_URL" > /dev/null; then
+              echo "Frontend is accessible (attempt $attempt)."
+              exit 0
             fi
-            echo "Attempt $attempt/$MAX_ATTEMPTS failed – retrying in ${SLEEP_SECONDS}s…"
-            attempt=$((attempt + 1))
-            sleep "$SLEEP_SECONDS"
+            echo "Attempt $attempt/3 failed – retrying in 15s…"
+            sleep 15
           done
-
-          echo "Frontend is accessible."
-          echo "FRONTEND_URL=$FRONTEND_URL" >> "$GITHUB_ENV"
+          echo "Frontend health check failed after 3 attempts."
+          exit 1
 
       - name: Generate deploy evidence
-        # Produces a JSON artifact suitable for audit trails and post-deployment reporting
+        if: always()
         run: |
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > deploy-evidence.json <<EOF
+          cat > deploy-evidence.json <<EVIDENCE
           {
-            "alb_url": "$ALB_URL",
-            "frontend_url": "$FRONTEND_URL",
+            "backend_url": "${{ needs.deploy-infra.outputs.backend_url }}",
+            "frontend_url": "${{ needs.deploy-infra.outputs.frontend_url }}",
             "sha": "${{ github.sha }}",
             "timestamp": "$TIMESTAMP",
             "environment": "${{ inputs.environment }}",
             "status": "success"
           }
-          EOF
+          EVIDENCE
           echo "Deploy evidence:"
           cat deploy-evidence.json
 
       - name: Upload deploy evidence artifact
-        uses: ./.github/actions/upload-evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deploy-evidence
           path: deploy-evidence.json

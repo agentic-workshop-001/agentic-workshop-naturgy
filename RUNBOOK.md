@@ -391,10 +391,10 @@ Para descargar artefactos:
 
 ### 6.4 Troubleshooting
 
-#### ❌ `configure-aws-credentials` falla — "Could not assume role"
-- Verificar que el IAM role en `AWS_ROLE_TO_ASSUME` tiene configurado el trust policy para el repositorio correcto.
-- El subject del OIDC token debe coincidir: `repo:<org>/<repo>:ref:refs/heads/main` (o el ref correspondiente).
-- Consultar los logs del step **Configure AWS credentials (OIDC)** para el ARN exacto intentado.
+#### ❌ `configure-aws-credentials` falla — "Access Denied"
+- Verificar que los secrets `AWS_ACCESS_KEY_ID` y `AWS_SECRET_ACCESS_KEY` están configurados en el repositorio.
+- Comprobar que la IAM key tiene permisos para ECS, ECR, S3 e IAM.
+- Consultar los logs del step **Configure AWS credentials** para el error exacto.
 
 #### ❌ `Terraform apply` falla
 - Revisar los outputs del step **Terraform plan** para ver los cambios previstos.
@@ -409,7 +409,7 @@ Para descargar artefactos:
 #### ❌ Health check backend falla (5 intentos)
 - Comprobar que el ALB listener está configurado para el puerto correcto (8080).
 - Verificar que el security group del ALB permite tráfico HTTP entrante.
-- Revisar `/actuator/health` en los logs de la task ECS.
+- Revisar `/api/gas/supply-points` en los logs de la task ECS (no hay `/actuator/health`).
 
 #### ❌ SIT tests fallan
 - Los artefactos `sit-evidence` contienen `sit-results.json` con el detalle de cada test.
