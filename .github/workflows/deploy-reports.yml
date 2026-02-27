@@ -63,11 +63,7 @@ jobs:
         run: |
           npm ci --legacy-peer-deps
           npm run test:coverage
-
-      - name: Copy Vitest report to reports/
-        run: |
-          rm -rf reports/vitest
-          cp -r frontend/coverage reports/vitest
+          # vitest.config.ts writes coverage directly to ../reports/vitest
 
       - name: Upload reports artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
