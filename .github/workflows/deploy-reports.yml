@@ -107,34 +107,23 @@ jobs:
           echo "Uploading reports to s3://$BUCKET"
           aws s3 sync reports/ "s3://$BUCKET" --delete
 
-      - name: Invalidate CloudFront cache
+      - name: Generate presigned URLs and print summary
         run: |
-          # Get the distribution ID from Terraform state or find by comment
-          DIST_ID=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id" \
-            --output text)
-          if [[ -n "$DIST_ID" ]]; then
-            echo "Invalidating CloudFront distribution: $DIST_ID"
-            aws cloudfront create-invalidation \
-              --distribution-id "$DIST_ID" \
-              --paths "/*"
-          else
-            echo "CloudFront distribution not found — skipping invalidation."
-          fi
+          BUCKET="naturgy-gas-reports-dev"
+          EXPIRES=604800  # 7 days
 
-      - name: Print reports URL
-        run: |
-          DIST_DOMAIN=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].DomainName" \
-            --output text)
-          URL="https://${DIST_DOMAIN}"
+          DASHBOARD=$(aws s3 presign "s3://$BUCKET/index.html" --expires-in $EXPIRES)
+          JACOCO=$(aws s3 presign "s3://$BUCKET/jacoco/index.html" --expires-in $EXPIRES)
+          VITEST=$(aws s3 presign "s3://$BUCKET/vitest/index.html" --expires-in $EXPIRES)
 
           {
             echo "## :bar_chart: Reports Published"
             echo ""
+            echo "Links valid for **7 days** (presigned URLs):"
+            echo ""
             echo "| Report | Link |"
             echo "|--------|------|"
-            echo "| **Dashboard** | ${URL} |"
-            echo "| JaCoCo (Backend) | ${URL}/jacoco/index.html |"
-            echo "| Vitest (Frontend) | ${URL}/vitest/index.html |"
+            echo "| **Dashboard** | [Open]($DASHBOARD) |"
+            echo "| JaCoCo (Backend) | [Open]($JACOCO) |"
+            echo "| Vitest (Frontend) | [Open]($VITEST) |"
           } >> "$GITHUB_STEP_SUMMARY"

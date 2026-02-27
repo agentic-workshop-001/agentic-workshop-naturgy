@@ -87,11 +87,9 @@ jobs:
       - name: Terraform apply
         run: terraform -chdir=terraform/reports apply -auto-approve tfplan
 
-      - name: Show Reports URL
+      - name: Show Reports Bucket
         run: |
           BUCKET=$(terraform -chdir=terraform/reports output -raw reports_bucket_name)
-          URL=$(terraform -chdir=terraform/reports output -raw reports_url)
-          CF_ID=$(terraform -chdir=terraform/reports output -raw cloudfront_distribution_id)
 
           {
             echo "## :white_check_mark: Reports Infrastructure Created"
@@ -99,8 +97,7 @@ jobs:
             echo "| Resource | Value |"
             echo "|----------|-------|"
             echo "| S3 Bucket | \`$BUCKET\` |"
-            echo "| CloudFront ID | \`$CF_ID\` |"
-            echo "| Reports URL | $URL |"
             echo ""
-            echo "Now run the **Deploy: Upload Reports to S3** workflow to upload reports."
+            echo "Now run **Deploy: Upload Reports to S3** to upload reports."
+            echo "Presigned URLs will be printed in the deploy job summary."
           } >> "$GITHUB_STEP_SUMMARY"
