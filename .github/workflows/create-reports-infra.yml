@@ -1,0 +1,104 @@
+# ============================================================
+# Create Reports Infrastructure
+#
+# Creates the S3 bucket (with website hosting) that will serve
+# the JaCoCo + Vitest test reports.
+#
+# Run manually via workflow_dispatch. Idempotent — safe to
+# re-run; Terraform state is stored in a dedicated S3 bucket.
+#
+# Required secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+# ============================================================
+
+name: "Infra: Create Reports S3"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: false
+        default: "dev"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reports-infra
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: Terraform – Reports S3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+
+      - name: Create Terraform state bucket (idempotent)
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          STATE_BUCKET="naturgy-gas-tfstate-${ACCOUNT_ID}"
+          echo "STATE_BUCKET=$STATE_BUCKET" >> "$GITHUB_ENV"
+
+          if aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null; then
+            echo "State bucket already exists: $STATE_BUCKET"
+          else
+            echo "Creating state bucket: $STATE_BUCKET"
+            aws s3api create-bucket \
+              --bucket "$STATE_BUCKET" \
+              --region "${{ steps.clean.outputs.aws_region }}" \
+              --create-bucket-configuration LocationConstraint="${{ steps.clean.outputs.aws_region }}"
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: |
+          terraform -chdir=terraform/reports init \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="region=${{ steps.clean.outputs.aws_region }}"
+
+      - name: Terraform plan
+        run: |
+          terraform -chdir=terraform/reports plan \
+            -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+            -var="environment=${{ inputs.environment }}" \
+            -out=tfplan
+
+      - name: Terraform apply
+        run: terraform -chdir=terraform/reports apply -auto-approve tfplan
+
+      - name: Show Reports URL
+        run: |
+          BUCKET=$(terraform -chdir=terraform/reports output -raw reports_bucket_name)
+          URL=$(terraform -chdir=terraform/reports output -raw reports_url)
+
+          {
+            echo "## :white_check_mark: Reports Infrastructure Created"
+            echo ""
+            echo "| Resource | Value |"
+            echo "|----------|-------|"
+            echo "| S3 Bucket | \`$BUCKET\` |"
+            echo "| Website URL | $URL |"
+            echo ""
+            echo "Now run the **Deploy Reports** workflow to upload reports."
+          } >> "$GITHUB_STEP_SUMMARY"

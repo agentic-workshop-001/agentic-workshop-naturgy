@@ -1,17 +1,13 @@
 # ============================================================
 # Main CI/CD Orchestrator
 #
-# Required GitHub Secrets:
-#   AWS_ACCESS_KEY_ID    – IAM access key for AWS authentication
-#   AWS_SECRET_ACCESS_KEY – IAM secret key for AWS authentication
-#   AWS_REGION           – Default AWS region (eu-west-1)
-#   AWS_ACCOUNT_ID       – AWS account ID (for ECR URL construction)
+# Current scope: Build & Test only.
+# Deploy, SIT and RCA stages are defined but disabled until
+# full AWS infrastructure (VPC/ECS/ALB) is provisioned.
 #
-# Optional GitHub Secrets:
-#   SLACK_WEBHOOK_URL    – Webhook for RCA/failure notifications
-#
-# Infrastructure values (ECR URL, S3 bucket, ECS cluster/service, ALB URL)
-# are derived automatically from Terraform outputs — no extra secrets needed.
+# Reports deployment is handled by separate workflows:
+#   - "Infra: Create Reports S3"   → creates S3 bucket
+#   - "Deploy: Upload Reports to S3" → uploads reports
 # ============================================================
 
 name: CI/CD Pipeline
@@ -21,12 +17,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target deployment environment"
-        required: false
-        default: "staging"
-        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,41 +33,42 @@ jobs:
     permissions:
       contents: read
 
-  # ── Stage 2: Deploy to AWS (Terraform + S3 + ECR/ECS) ──────────────────
-  deploy:
-    name: Deploy to AWS
-    needs: build-test
-    if: github.event_name != 'pull_request'
-    uses: ./.github/workflows/reusable-deploy.yml
-    permissions:
-      contents: read
-    secrets: inherit
-    with:
-      environment: ${{ github.event.inputs.environment || 'staging' }}
-
-  # ── Stage 3: System Integration Tests ───────────────────────────────────
-  sit:
-    name: SIT
-    needs: deploy
-    uses: ./.github/workflows/reusable-sit.yml
-    permissions:
-      contents: read
-    with:
-      environment: ${{ github.event.inputs.environment || 'staging' }}
-      backend_url: ${{ needs.deploy.outputs.backend_url }}
-      frontend_url: ${{ needs.deploy.outputs.frontend_url }}
-
-  # ── Stage 4: RCA & Notifications (always runs) ─────────────────────────
-  rca:
-    name: RCA
-    needs: [build-test, deploy, sit]
-    if: always()
-    uses: ./.github/workflows/reusable-rca.yml
-    permissions:
-      contents: read
-    secrets: inherit
-    with:
-      environment: ${{ github.event.inputs.environment || 'staging' }}
-      build_result: ${{ needs.build-test.result }}
-      deploy_result: ${{ needs.deploy.result }}
-      sit_result: ${{ needs.sit.result }}
+  # ── Stages 2-4 disabled until full infra is provisioned ─────────────────
+  # To enable: uncomment the jobs below and ensure AWS infra exists
+  # (VPC, ECR, ECS Fargate, ALB via terraform/ root module).
+  #
+  # deploy:
+  #   name: Deploy to AWS
+  #   needs: build-test
+  #   if: github.event_name != 'pull_request'
+  #   uses: ./.github/workflows/reusable-deploy.yml
+  #   permissions:
+  #     contents: read
+  #   secrets: inherit
+  #   with:
+  #     environment: staging
+  #
+  # sit:
+  #   name: SIT
+  #   needs: deploy
+  #   uses: ./.github/workflows/reusable-sit.yml
+  #   permissions:
+  #     contents: read
+  #   with:
+  #     environment: staging
+  #     backend_url: ${{ needs.deploy.outputs.backend_url }}
+  #     frontend_url: ${{ needs.deploy.outputs.frontend_url }}
+  #
+  # rca:
+  #   name: RCA
+  #   needs: [build-test, deploy, sit]
+  #   if: always()
+  #   uses: ./.github/workflows/reusable-rca.yml
+  #   permissions:
+  #     contents: read
+  #   secrets: inherit
+  #   with:
+  #     environment: staging
+  #     build_result: ${{ needs.build-test.result }}
+  #     deploy_result: ${{ needs.deploy.result }}
+  #     sit_result: ${{ needs.sit.result }}
