@@ -20,6 +20,7 @@ provider "aws" {
 
 locals {
   common_tags = {
+    Application = "poc-naturgy"
     Project     = var.project_name
     Environment = var.environment
     ManagedBy   = "terraform"

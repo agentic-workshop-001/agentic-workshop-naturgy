@@ -24,6 +24,7 @@ provider "aws" {
 
 locals {
   common_tags = {
+    Application = "poc-naturgy"
     Environment = var.environment
     Owner       = "naturgy"
     Project     = var.app_name

@@ -66,6 +66,11 @@ jobs:
               --create-bucket-configuration LocationConstraint="${{ steps.clean.outputs.aws_region }}"
           fi
 
+          # Ensure tags are up-to-date (idempotent)
+          aws s3api put-bucket-tagging \
+            --bucket "$STATE_BUCKET" \
+            --tagging 'TagSet=[{Key=Application,Value=poc-naturgy},{Key=Project,Value=naturgy-gas},{Key=Environment,Value=${{ inputs.environment }}},{Key=ManagedBy,Value=github-actions},{Key=Purpose,Value=terraform-state}]'
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
