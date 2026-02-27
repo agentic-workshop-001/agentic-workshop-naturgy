@@ -4,6 +4,11 @@ output "reports_bucket_name" {
 }
 
 output "reports_url" {
-  description = "Public URL to access the reports website"
-  value       = "http://${aws_s3_bucket_website_configuration.reports.website_endpoint}"
+  description = "Public URL to access the reports website via CloudFront"
+  value       = "https://${aws_cloudfront_distribution.reports.domain_name}"
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID (for cache invalidation)"
+  value       = aws_cloudfront_distribution.reports.id
 }
