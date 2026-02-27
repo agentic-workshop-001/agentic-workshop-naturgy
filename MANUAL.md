@@ -137,13 +137,22 @@ Este script hace automáticamente:
   Step 2: Create infrastructure issue
 ═══════════════════════════════════════════════
 ✓ Issue #XX created: Infrastructure
-✓ Copilot assigned to #XX
 
 ═══════════════════════════════════════════════
   Step 3: Create workflows issue
 ═══════════════════════════════════════════════
 ✓ Issue #YY created: Workflows
-✓ Copilot assigned to #YY
+
+═══════════════════════════════════════════════
+  Step 4: Assign Copilot (manual step required)
+═══════════════════════════════════════════════
+⚠ Copilot Coding Agent cannot be assigned via the API.
+⚠ You must assign it manually using the GitHub web UI.
+
+  Open each issue and click 'Assign → Copilot':
+
+  1. https://github.com/.../issues/XX
+  2. https://github.com/.../issues/YY
 
 ═══════════════════════════════════════════════
   Demo launched!
@@ -158,9 +167,20 @@ Este script hace automáticamente:
 | `./demo.sh --issues-only` | Solo crear issues (sin resetear main) |
 | `./demo.sh --cleanup` | Ejecutar cleanup AWS antes de la demo |
 
-### Paso 2: Esperar a que Copilot genere los PRs (~5-15 min)
+### Paso 2: Asignar Copilot a los issues (manual)
 
-Una vez creados los issues, **Copilot Coding Agent** empezará a trabajar automáticamente. Se puede seguir el progreso en:
+El script `demo.sh` no puede asignar Copilot automáticamente (es una limitación de la API de GitHub). Hay que hacerlo manualmente:
+
+1. Abrir cada issue en el navegador (el script imprime las URLs)
+2. En la barra lateral derecha, hacer clic en **"Assignees"**
+3. Seleccionar **"Copilot"** de la lista
+4. Repetir para el segundo issue
+
+> **Nota**: Sin esta asignación, Copilot NO empezará a trabajar.
+
+### Paso 3: Esperar a que Copilot genere los PRs (~5-15 min)
+
+Una vez **asignado Copilot a ambos issues**, empezará a trabajar automáticamente. Se puede seguir el progreso en:
 
 - **Issues**: https://github.com/agentic-workshop-001/agentic-workshop-naturgy/issues
 - **Pull Requests**: https://github.com/agentic-workshop-001/agentic-workshop-naturgy/pulls
@@ -312,8 +332,9 @@ La demo se puede repetir **tantas veces como sea necesario**. Cada ejecución de
 ### Copilot no crea PRs
 
 - Verificar que **Copilot Coding Agent** está habilitado: Settings → Copilot → Coding agent
-- Verificar que los issues están **asignados a `copilot`** (ver columna Assignees)
-- Si la asignación automática falló, asignar manualmente desde el issue
+- Verificar que los issues están **asignados a `Copilot`** (ver columna Assignees)
+- La asignación de Copilot **debe hacerse manualmente** desde la web UI del issue (Assignees → Copilot)
+- La API de GitHub no soporta asignar Copilot Coding Agent programáticamente
 
 ### Workflow de infra falla en "Configure AWS credentials"
 

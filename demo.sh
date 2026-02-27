@@ -192,12 +192,7 @@ ISSUE1_NUM=$(gh issue create \
   2>&1 | grep -oP '\d+$')
 
 ok "Issue #${ISSUE1_NUM} created: Infrastructure"
-
-# Assign to copilot coding agent
-gh api --method POST "/repos/${REPO}/issues/${ISSUE1_NUM}/assignees" \
-  --input - <<< '{"assignees":["copilot"]}' > /dev/null 2>&1 \
-  && ok "Copilot assigned to #${ISSUE1_NUM}" \
-  || warn "Could not assign copilot to #${ISSUE1_NUM} — assign manually"
+ISSUE1_URL="https://github.com/${REPO}/issues/${ISSUE1_NUM}"
 
 # ── Step 3: Create Issue #2 — Workflows (supermario-developer) ─
 header "Step 3: Create workflows issue"
@@ -325,11 +320,19 @@ ISSUE2_NUM=$(gh issue create \
   2>&1 | grep -oP '\d+$')
 
 ok "Issue #${ISSUE2_NUM} created: Workflows"
+ISSUE2_URL="https://github.com/${REPO}/issues/${ISSUE2_NUM}"
 
-gh api --method POST "/repos/${REPO}/issues/${ISSUE2_NUM}/assignees" \
-  --input - <<< '{"assignees":["copilot"]}' > /dev/null 2>&1 \
-  && ok "Copilot assigned to #${ISSUE2_NUM}" \
-  || warn "Could not assign copilot to #${ISSUE2_NUM} — assign manually"
+# ── Step 4: Manual Copilot assignment ──────────────────────
+header "Step 4: Assign Copilot (manual step required)"
+echo ""
+warn "Copilot Coding Agent cannot be assigned via the API."
+warn "You must assign it manually using the GitHub web UI."
+echo ""
+echo "  Open each issue and click 'Assign → Copilot':"
+echo ""
+echo "  1. ${ISSUE1_URL}"
+echo "  2. ${ISSUE2_URL}"
+echo ""
 
 # ── Summary ────────────────────────────────────────────────
 header "Demo launched!"
@@ -339,11 +342,12 @@ echo "  Issue #${ISSUE1_NUM}: Infrastructure (devops-sre)"
 echo "  Issue #${ISSUE2_NUM}: Workflows (supermario-developer)"
 echo ""
 echo "  Next steps:"
-echo "  1. Wait for Copilot to create PRs for both issues"
-echo "  2. Review and merge PR for Issue #${ISSUE1_NUM} first (infrastructure)"
-echo "  3. Review and merge PR for Issue #${ISSUE2_NUM} (workflows)"
-echo "  4. Run 'Infra: Create Reports S3' workflow"
-echo "  5. Run 'Deploy: Upload Reports to S3' workflow"
-echo "  6. Open the CloudFront URL from the workflow summary"
+echo "  1. ⚠️  Assign Copilot to both issues (links above)"
+echo "  2. Wait for Copilot to create PRs for both issues"
+echo "  3. Review and merge PR for Issue #${ISSUE1_NUM} first (infrastructure)"
+echo "  4. Review and merge PR for Issue #${ISSUE2_NUM} (workflows)"
+echo "  5. Run 'Infra: Create Reports S3' workflow"
+echo "  6. Run 'Deploy: Upload Reports to S3' workflow"
+echo "  7. Open the CloudFront URL from the workflow summary"
 echo ""
 info "To clean up AWS resources after the demo: ./cleanup.sh"
