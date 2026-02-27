@@ -51,6 +51,7 @@ jobs:
           aws-region: ${{ steps.clean.outputs.aws_region }}
           role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
           role-duration-seconds: 3600
+          role-skip-session-tagging: true
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
