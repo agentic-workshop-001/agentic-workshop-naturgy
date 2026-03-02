@@ -1,0 +1,152 @@
+# ============================================================
+# Destroy Reports Infrastructure
+#
+# Removes CloudFront distribution, OAC, and S3 bucket created
+# for test reports hosting. Manual trigger only.
+# ============================================================
+
+name: "Infra: Destroy Reports S3"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to destroy"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      confirm:
+        description: "Type 'destroy' to confirm"
+        required: true
+        type: string
+
+concurrency:
+  group: reports-infra-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  destroy:
+    name: Destroy Reports Infrastructure
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'destroy'
+    steps:
+      - name: Reject if not confirmed
+        if: github.event.inputs.confirm != 'destroy'
+        run: |
+          echo "::error::Confirmation required. Type 'destroy' to proceed."
+          exit 1
+
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+          role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Destroy CloudFront distribution
+        id: cloudfront
+        run: |
+          set -euo pipefail
+          PROJECT="naturgy-gas"
+          ENV="${{ github.event.inputs.environment }}"
+          CF_COMMENT="Naturgy Gas test reports"
+
+          echo "### 🔍 Looking for CloudFront distribution..." >> "$GITHUB_STEP_SUMMARY"
+
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='${CF_COMMENT}'].Id" \
+            --output text 2>/dev/null || echo "")
+
+          if [[ -z "$DIST_ID" || "$DIST_ID" == "None" ]]; then
+            echo "No CloudFront distribution found — skipping"
+            echo "- CloudFront: not found (skipped)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "Found distribution: $DIST_ID"
+          echo "dist_id=$DIST_ID" >> "$GITHUB_OUTPUT"
+
+          # Get current config
+          DIST_CONFIG=$(aws cloudfront get-distribution-config --id "$DIST_ID")
+          ETAG=$(echo "$DIST_CONFIG" | jq -r '.ETag')
+          IS_ENABLED=$(echo "$DIST_CONFIG" | jq -r '.DistributionConfig.Enabled')
+
+          # Disable if enabled
+          if [[ "$IS_ENABLED" == "true" ]]; then
+            echo "Disabling distribution (required before deletion)..."
+            DISABLE_CONFIG=$(echo "$DIST_CONFIG" | jq '.DistributionConfig.Enabled = false | .DistributionConfig')
+            aws cloudfront update-distribution \
+              --id "$DIST_ID" \
+              --if-match "$ETAG" \
+              --distribution-config "$DISABLE_CONFIG" > /dev/null
+
+            echo "Waiting for distribution to deploy (5-15 min)..."
+            aws cloudfront wait distribution-deployed --id "$DIST_ID"
+            ETAG=$(aws cloudfront get-distribution-config --id "$DIST_ID" | jq -r '.ETag')
+          fi
+
+          # Delete distribution
+          aws cloudfront delete-distribution --id "$DIST_ID" --if-match "$ETAG"
+          echo "✓ CloudFront distribution $DIST_ID deleted"
+          echo "- ✅ CloudFront distribution \`$DIST_ID\` deleted" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Destroy CloudFront OAC
+        run: |
+          set -euo pipefail
+          PROJECT="naturgy-gas"
+
+          OAC_ID=$(aws cloudfront list-origin-access-controls \
+            --query "OriginAccessControlList.Items[?Name=='${PROJECT}-reports-oac'].Id" \
+            --output text 2>/dev/null || echo "")
+
+          if [[ -n "$OAC_ID" && "$OAC_ID" != "None" ]]; then
+            OAC_ETAG=$(aws cloudfront get-origin-access-control --id "$OAC_ID" | jq -r '.ETag')
+            aws cloudfront delete-origin-access-control --id "$OAC_ID" --if-match "$OAC_ETAG"
+            echo "✓ OAC $OAC_ID deleted"
+            echo "- ✅ OAC \`$OAC_ID\` deleted" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No OAC found — skipping"
+            echo "- OAC: not found (skipped)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Destroy S3 bucket
+        run: |
+          set -euo pipefail
+          PROJECT="naturgy-gas"
+          ENV="${{ github.event.inputs.environment }}"
+          BUCKET="${PROJECT}-reports-${ENV}"
+
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Emptying bucket ${BUCKET}..."
+            aws s3 rm "s3://${BUCKET}" --recursive
+            echo "Deleting bucket..."
+            aws s3api delete-bucket --bucket "$BUCKET"
+            echo "✓ S3 bucket ${BUCKET} deleted"
+            echo "- ✅ S3 bucket \`${BUCKET}\` deleted" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Bucket ${BUCKET} not found — skipping"
+            echo "- S3 bucket: not found (skipped)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Summary
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ✅ Destroy complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "All reports infrastructure for \`${{ github.event.inputs.environment }}\` has been removed." >> "$GITHUB_STEP_SUMMARY"
