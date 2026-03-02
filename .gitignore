@@ -1,0 +1,12 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+
+# Node
+node_modules/
+
+# Build artifacts
+target/
+dist/
