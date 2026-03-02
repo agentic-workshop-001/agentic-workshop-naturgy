@@ -1,0 +1,149 @@
+# ============================================================
+# Infra: Destroy Reports S3 + CloudFront
+#
+# Empties the S3 bucket, imports all resources into Terraform
+# state, then runs terraform destroy.
+# Requires typing "destroy" in the confirmation input to prevent
+# accidental execution.
+# ============================================================
+
+name: "Infra: Destroy Reports S3"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type "destroy" to confirm destruction of the reports infrastructure'
+        required: true
+      environment:
+        description: "Deployment environment"
+        required: false
+        default: "dev"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reports-infra
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: Terraform – destroy reports infrastructure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation input
+        run: |
+          if [ "${{ inputs.confirmation }}" != "destroy" ]; then
+            echo "::error::Confirmation input must be exactly 'destroy'. Got: ${{ inputs.confirmation }}"
+            exit 1
+          fi
+
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate repo hash
+        id: hash
+        run: |
+          REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)
+          echo "repo_hash=$REPO_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+          role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: terraform/reports
+        run: terraform init
+
+      - name: Import existing S3 bucket into state (if present)
+        working-directory: terraform/reports
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          BUCKET="naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Importing S3 bucket $BUCKET"
+            terraform import \
+              -var="repo_hash=${REPO_HASH}" \
+              -var="environment=${ENVIRONMENT}" \
+              -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+              aws_s3_bucket.reports "$BUCKET" || true
+          else
+            echo "Bucket $BUCKET not found — nothing to import"
+          fi
+
+      - name: Import existing CloudFront distribution into state (if present)
+        working-directory: terraform/reports
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports ${REPO_HASH}'].Id" \
+            --output text)
+          if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
+            echo "Importing CloudFront distribution $DIST_ID"
+            terraform import \
+              -var="repo_hash=${REPO_HASH}" \
+              -var="environment=${{ inputs.environment }}" \
+              -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+              aws_cloudfront_distribution.reports "$DIST_ID" || true
+          else
+            echo "CloudFront distribution not found — nothing to import"
+          fi
+
+      - name: Empty S3 bucket before destroy
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          BUCKET="naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Emptying bucket $BUCKET"
+            aws s3 rm "s3://${BUCKET}" --recursive
+          else
+            echo "Bucket $BUCKET not found — skipping empty step"
+          fi
+
+      - name: Terraform destroy
+        working-directory: terraform/reports
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+        run: |
+          terraform destroy -auto-approve \
+            -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+            -var="environment=${{ inputs.environment }}" \
+            -var="repo_hash=${REPO_HASH}"
+
+      - name: Confirm destruction in summary
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          {
+            echo "## 🗑️ Reports Infrastructure Destroyed"
+            echo ""
+            echo "| Resource | Value |"
+            echo "|----------|-------|"
+            echo "| S3 Bucket | \`naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}\` |"
+            echo "| Environment | \`${ENVIRONMENT}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

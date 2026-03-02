@@ -1,0 +1,212 @@
+# ============================================================
+# Deploy: Upload Reports to S3
+#
+# Builds backend (JaCoCo) and frontend (Vitest) test reports,
+# then uploads them to S3 and invalidates the CloudFront cache.
+# Auto-provisions infrastructure if the S3 bucket does not exist
+# yet, so this workflow is fully self-contained.
+# ============================================================
+
+name: "Deploy: Upload Reports to S3"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: false
+        default: "dev"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-reports
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Job 1: Build backend and frontend, produce reports/
+  # ──────────────────────────────────────────────────────────
+  build-reports:
+    name: Build test reports
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Java 17 (temurin, Maven cache)
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Build backend and run tests (JaCoCo)
+        working-directory: backend
+        run: mvn clean verify -B
+
+      - name: Copy JaCoCo report to reports/jacoco
+        run: |
+          mkdir -p reports/jacoco
+          cp -r backend/target/site/jacoco/. reports/jacoco/
+
+      - name: Set up Node 20 (npm cache)
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run frontend tests with coverage (Vitest → reports/vitest)
+        working-directory: frontend
+        run: npm run test:coverage
+
+      - name: Upload reports artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-reports
+          path: reports/
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2: Upload reports to S3, auto-provision infra if needed
+  # ──────────────────────────────────────────────────────────
+  upload-reports:
+    name: Upload reports to S3
+    runs-on: ubuntu-latest
+    needs: build-reports
+    steps:
+      - name: Download reports artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: test-reports
+          path: reports/
+
+      - name: Checkout source (needed for Terraform)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: source
+
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate repo hash
+        id: hash
+        run: |
+          REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)
+          echo "repo_hash=$REPO_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+          role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Check if S3 bucket exists
+        id: bucket-check
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          BUCKET="naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Bucket $BUCKET not found — will auto-provision"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Terraform (auto-provision only)
+        if: steps.bucket-check.outputs.exists == 'false'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init (auto-provision only)
+        if: steps.bucket-check.outputs.exists == 'false'
+        working-directory: source/terraform/reports
+        run: terraform init
+
+      - name: Terraform plan (auto-provision only)
+        if: steps.bucket-check.outputs.exists == 'false'
+        working-directory: source/terraform/reports
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          terraform plan \
+            -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+            -var="environment=${ENVIRONMENT}" \
+            -var="repo_hash=${REPO_HASH}" \
+            -out=tfplan
+
+      - name: Terraform apply (auto-provision only)
+        if: steps.bucket-check.outputs.exists == 'false'
+        working-directory: source/terraform/reports
+        run: terraform apply -auto-approve tfplan
+
+      - name: Sync reports to S3
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          BUCKET="naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}"
+          aws s3 sync reports/ "s3://${BUCKET}" --delete
+
+      - name: Invalidate CloudFront cache
+        id: invalidate
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports ${REPO_HASH}'].Id" \
+            --output text)
+          if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id "$DIST_ID" \
+              --paths "/*"
+            DOMAIN=$(aws cloudfront get-distribution \
+              --id "$DIST_ID" \
+              --query "Distribution.DomainName" \
+              --output text)
+            echo "dist_id=$DIST_ID" >> "$GITHUB_OUTPUT"
+            echo "domain=$DOMAIN" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::CloudFront distribution not found — skipping invalidation"
+            echo "dist_id=" >> "$GITHUB_OUTPUT"
+            echo "domain=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Print CloudFront URLs in summary
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          BUCKET="naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}"
+          DOMAIN="${{ steps.invalidate.outputs.domain }}"
+          if [ -n "$DOMAIN" ]; then
+            {
+              echo "## 📊 Test Reports Published"
+              echo ""
+              echo "| Report | URL |"
+              echo "|--------|-----|"
+              echo "| Dashboard | https://$DOMAIN |"
+              echo "| JaCoCo (backend) | https://$DOMAIN/jacoco/ |"
+              echo "| Vitest (frontend) | https://$DOMAIN/vitest/ |"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Reports uploaded to S3 bucket \`$BUCKET\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
