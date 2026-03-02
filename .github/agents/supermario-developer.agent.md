@@ -133,9 +133,24 @@ concurrency: group: deploy-reports, cancel-in-progress: true
 
 **Job 2: upload-reports** (needs: build-reports)
 - Download artifact
+- Checkout source (needed for Terraform if auto-provision is required)
 - Sanitise AWS region (same pattern)
 - Generate repo hash: `REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)` → output
 - Configure AWS credentials (same pattern with role assumption)
+- **Check if S3 bucket exists** (CRITICAL — auto-provision if missing):
+  ```bash
+  BUCKET="naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}"
+  if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+    echo "exists=true" >> "$GITHUB_OUTPUT"
+  else
+    echo "::warning::Bucket $BUCKET not found — will auto-provision"
+    echo "exists=false" >> "$GITHUB_OUTPUT"
+  fi
+  ```
+- **Auto-provision infrastructure** (conditional: only if bucket does NOT exist):
+  - Setup Terraform (`hashicorp/setup-terraform`, `terraform_wrapper: false`)
+  - `terraform init` + `terraform plan` + `terraform apply` in `terraform/reports/` passing `repo_hash`, `environment`, `aws_region`
+  - This ensures the deploy workflow is **fully self-contained** and never fails because infra doesn't exist
 - `aws s3 sync reports/ s3://naturgy-gas-reports-${{ inputs.environment || 'dev' }}-${REPO_HASH} --delete`
 - Invalidate CloudFront cache:
   ```bash
@@ -146,3 +161,5 @@ concurrency: group: deploy-reports, cancel-in-progress: true
   aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
   ```
 - Print CloudFront URLs in `$GITHUB_STEP_SUMMARY` (dashboard, jacoco/, vitest/)
+
+> **IMPORTANT**: The deploy workflow MUST always include the auto-provision pattern above. It must NEVER assume the infrastructure already exists. This is critical because the deploy triggers automatically when CI/CD succeeds, and on first run the infra won't exist yet.
