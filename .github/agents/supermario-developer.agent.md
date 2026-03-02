@@ -98,19 +98,21 @@ concurrency: group: reports-infra, cancel-in-progress: false
 **Job: terraform**
 1. Checkout
 2. Sanitise AWS region: `REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"` → mask + output
-3. Configure AWS credentials (static keys + role assumption with role-skip-session-tagging)
-4. Setup Terraform (`terraform_wrapper: false`)
-5. `terraform init` in `terraform/reports/`
-6. Import existing S3 bucket if it exists (idempotent):
+3. Generate repo hash: `REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)` → output
+4. Configure AWS credentials (static keys + role assumption with role-skip-session-tagging)
+5. Setup Terraform (`terraform_wrapper: false`)
+6. `terraform init` in `terraform/reports/`
+7. Import existing S3 bucket if it exists (idempotent):
    ```bash
-   BUCKET="naturgy-gas-reports-${{ inputs.environment }}"
+   REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
+   BUCKET="naturgy-gas-reports-${{ inputs.environment }}-${REPO_HASH}"
    if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-     terraform import aws_s3_bucket.reports "$BUCKET" || true
+     terraform import -var="repo_hash=${REPO_HASH}" aws_s3_bucket.reports "$BUCKET" || true
    fi
    ```
-7. `terraform plan -var="aws_region=$REGION" -var="environment=${{ inputs.environment }}" -out=tfplan`
-8. `terraform apply -auto-approve tfplan`
-9. Show Reports URL in `$GITHUB_STEP_SUMMARY` (table: bucket, distribution ID, URL)
+8. `terraform plan -var="aws_region=$REGION" -var="environment=${{ inputs.environment }}" -var="repo_hash=$REPO_HASH" -out=tfplan`
+9. `terraform apply -auto-approve tfplan`
+10. Show Reports URL in `$GITHUB_STEP_SUMMARY` (table: bucket, distribution ID, URL)
 
 ### Workflow 2: `.github/workflows/deploy-reports.yml`
 ```
@@ -132,12 +134,14 @@ concurrency: group: deploy-reports, cancel-in-progress: true
 **Job 2: upload-reports** (needs: build-reports)
 - Download artifact
 - Sanitise AWS region (same pattern)
+- Generate repo hash: `REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)` → output
 - Configure AWS credentials (same pattern with role assumption)
-- `aws s3 sync reports/ s3://naturgy-gas-reports-${{ inputs.environment || 'dev' }} --delete`
+- `aws s3 sync reports/ s3://naturgy-gas-reports-${{ inputs.environment || 'dev' }}-${REPO_HASH} --delete`
 - Invalidate CloudFront cache:
   ```bash
+  REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
   DIST_ID=$(aws cloudfront list-distributions \
-    --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id" \
+    --query "DistributionList.Items[?Comment=='Naturgy Gas test reports ${REPO_HASH}'].Id" \
     --output text)
   aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
   ```

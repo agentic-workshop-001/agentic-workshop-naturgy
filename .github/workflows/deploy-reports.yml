@@ -109,6 +109,13 @@ jobs:
           echo "::add-mask::$REGION"
           echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
 
+      - name: Generate repo hash
+        id: hash
+        run: |
+          REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)
+          echo "repo_hash=$REPO_HASH" >> "$GITHUB_OUTPUT"
+          echo "Repo hash: $REPO_HASH"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
         with:
@@ -126,7 +133,8 @@ jobs:
         id: check-bucket
         run: |
           ENV="${{ inputs.environment || 'dev' }}"
-          BUCKET="naturgy-gas-reports-${ENV}"
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
+          BUCKET="naturgy-gas-reports-${ENV}-${REPO_HASH}"
           if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             echo "✓ Bucket ${BUCKET} exists"
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -146,10 +154,12 @@ jobs:
         working-directory: terraform/reports
         run: |
           ENV="${{ inputs.environment || 'dev' }}"
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
           terraform init
           terraform plan \
             -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
             -var="environment=${ENV}" \
+            -var="repo_hash=${REPO_HASH}" \
             -out=tfplan
           terraform apply -auto-approve tfplan
           echo "✓ Infrastructure provisioned successfully"
@@ -157,12 +167,14 @@ jobs:
       - name: Sync reports to S3
         run: |
           ENV="${{ inputs.environment || 'dev' }}"
-          aws s3 sync reports/ "s3://naturgy-gas-reports-${ENV}" --delete
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
+          aws s3 sync reports/ "s3://naturgy-gas-reports-${ENV}-${REPO_HASH}" --delete
 
       - name: Invalidate CloudFront cache
         run: |
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
           DIST_ID=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id" \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports ${REPO_HASH}'].Id" \
             --output text)
           aws cloudfront create-invalidation \
             --distribution-id "$DIST_ID" \
@@ -170,8 +182,9 @@ jobs:
 
       - name: Print CloudFront URLs in summary
         run: |
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
           DIST_ID=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id" \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports ${REPO_HASH}'].Id" \
             --output text)
           DOMAIN=$(aws cloudfront get-distribution \
             --id "$DIST_ID" \

@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "reports" {
-  bucket        = "${var.project_name}-reports-${var.environment}"
+  bucket        = "${var.project_name}-reports-${var.environment}-${var.repo_hash}"
   force_destroy = true
 
   tags = local.common_tags
@@ -15,14 +15,14 @@ resource "aws_s3_bucket_public_access_block" "reports" {
 }
 
 resource "aws_cloudfront_origin_access_control" "reports" {
-  name                              = "${var.project_name}-reports-oac"
+  name                              = "${var.project_name}-reports-oac-${var.repo_hash}"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
 resource "aws_cloudfront_distribution" "reports" {
-  comment             = "Naturgy Gas test reports"
+  comment             = "Naturgy Gas test reports ${var.repo_hash}"
   default_root_object = "index.html"
   enabled             = true
 

@@ -86,13 +86,22 @@ When someone asks to "publish reports", "see reports in the cloud", "host report
 - They live in `reports/` directory (JaCoCo in `reports/jacoco/`, Vitest in `reports/vitest/`)
 - They must be served via **S3 + CloudFront with OAC** (Origin Access Control)
 - Terraform module path: `terraform/reports/`
-- S3 bucket name: `${project_name}-reports-${environment}` (default: `naturgy-gas-reports-dev`), `force_destroy = true`
-- CloudFront OAC name: `${project_name}-reports-oac`
-- CloudFront distribution comment: **exactly** `"Naturgy Gas test reports"` (used by deploy workflow to find the distribution)
+- **Multi-tenant isolation**: Multiple repos share the same AWS account. A `repo_hash` (7-char hex, derived from `sha256(GITHUB_REPOSITORY)`) is appended to all resource names to avoid collisions.
+- S3 bucket name: `${project_name}-reports-${environment}-${repo_hash}` (e.g. `naturgy-gas-reports-dev-a1b2c3d`), `force_destroy = true`
+- CloudFront OAC name: `${project_name}-reports-oac-${repo_hash}`
+- CloudFront distribution comment: **exactly** `"Naturgy Gas test reports ${repo_hash}"` (used by deploy workflow to find the distribution)
 - S3 bucket policy: allow `s3:GetObject` from CloudFront service principal, conditioned on `AWS:SourceArn`
 - Terraform outputs: `reports_bucket_name`, `reports_url` (https://domain), `cloudfront_distribution_id`
-- Variables: `aws_region` (default `eu-west-1`), `environment` (default `dev`), `project_name` (default `naturgy-gas`)
+- Variables: `aws_region` (default `eu-west-1`), `environment` (default `dev`), `project_name` (default `naturgy-gas`), `repo_hash` (string, 7 hex chars, no default — must be passed by workflow)
 - `locals.common_tags` must include: `Application = "poc-naturgy"`, `Project = var.project_name`, `Environment = var.environment`, `ManagedBy = "terraform"`, `Purpose = "test-reports"`
+- **Hash generation** in workflows:
+  ```yaml
+  - name: Generate repo hash
+    id: hash
+    run: |
+      REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)
+      echo "repo_hash=$REPO_HASH" >> "$GITHUB_OUTPUT"
+  ```
 
 ### Docker
 - Multi-stage builds for backend
@@ -107,9 +116,9 @@ When someone asks to "publish reports", "see reports in the cloud", "host report
 
 ### Deploy Workflows Convention
 When someone asks for "workflows to deploy reports", "CI/CD for the reports", "automate reports", or similar:
-- **Infra workflow** (`create-reports-infra.yml`): name `"Infra: Create Reports S3"`, `workflow_dispatch` with input `environment` (default `dev`), runs terraform init/plan/apply on `terraform/reports/`, imports existing S3 bucket if present (idempotent), shows URL in GITHUB_STEP_SUMMARY
-- **Deploy workflow** (`deploy-reports.yml`): name `"Deploy: Upload Reports to S3"`, triggers on `workflow_dispatch` + `workflow_run` (on `"CI/CD Pipeline"` success on main), Job 1 builds backend (`mvn clean verify -B`) + copies jacoco to reports + builds frontend (`npm ci --legacy-peer-deps && npm run test:coverage`), Job 2 syncs `reports/` to S3 and invalidates CloudFront cache (find dist by comment `"Naturgy Gas test reports"`), prints CloudFront URLs in GITHUB_STEP_SUMMARY
-- Both workflows MUST sanitize AWS_REGION and use role assumption (see AWS patterns above)
+- **Infra workflow** (`create-reports-infra.yml`): name `"Infra: Create Reports S3"`, `workflow_dispatch` with input `environment` (default `dev`), generates `repo_hash`, runs terraform init/plan/apply on `terraform/reports/` passing `-var="repo_hash=$REPO_HASH"`, imports existing S3 bucket if present (idempotent, uses hashed bucket name), shows URL in GITHUB_STEP_SUMMARY
+- **Deploy workflow** (`deploy-reports.yml`): name `"Deploy: Upload Reports to S3"`, triggers on `workflow_dispatch` + `workflow_run` (on `"CI/CD Pipeline"` success on main), generates `repo_hash`, Job 1 builds backend (`mvn clean verify -B`) + copies jacoco to reports + builds frontend (`npm ci --legacy-peer-deps && npm run test:coverage`), Job 2 syncs `reports/` to S3 (`naturgy-gas-reports-${ENV}-${REPO_HASH}`) and invalidates CloudFront cache (find dist by comment `"Naturgy Gas test reports ${REPO_HASH}"`), prints CloudFront URLs in GITHUB_STEP_SUMMARY
+- Both workflows MUST sanitize AWS_REGION, generate repo_hash, and use role assumption (see AWS patterns above)
 - `vitest.config.ts` writes coverage to `../reports/vitest` automatically
 
 ## Custom Agents

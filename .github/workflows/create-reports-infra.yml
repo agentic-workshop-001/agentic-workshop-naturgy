@@ -43,6 +43,13 @@ jobs:
           echo "::add-mask::$REGION"
           echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
 
+      - name: Generate repo hash
+        id: hash
+        run: |
+          REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)
+          echo "repo_hash=$REPO_HASH" >> "$GITHUB_OUTPUT"
+          echo "Repo hash: $REPO_HASH"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
         with:
@@ -67,8 +74,9 @@ jobs:
         env:
           TF_VAR_aws_region: ${{ steps.clean.outputs.aws_region }}
           TF_VAR_environment: ${{ inputs.environment }}
+          TF_VAR_repo_hash: ${{ steps.hash.outputs.repo_hash }}
         run: |
-          BUCKET="naturgy-gas-reports-${{ inputs.environment }}"
+          BUCKET="naturgy-gas-reports-${{ inputs.environment }}-${{ steps.hash.outputs.repo_hash }}"
           if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             terraform import aws_s3_bucket.reports "$BUCKET" || true
           fi
@@ -79,6 +87,7 @@ jobs:
           terraform plan \
             -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
             -var="environment=${{ inputs.environment }}" \
+            -var="repo_hash=${{ steps.hash.outputs.repo_hash }}" \
             -out=tfplan
 
       - name: Terraform apply

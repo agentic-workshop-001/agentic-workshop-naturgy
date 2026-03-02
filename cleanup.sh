@@ -9,17 +9,27 @@
 #   export AWS_PROFILE=naturgy   # or set AWS_ACCESS_KEY_ID etc.
 #   ./cleanup.sh [environment]   # default: dev
 #
-# Requires: aws cli v2, jq
+# Requires: aws cli v2, jq, git or gh
 # ============================================================
 set -euo pipefail
 
 ENV="${1:-dev}"
 PROJECT="naturgy-gas"
-BUCKET="${PROJECT}-reports-${ENV}"
-CF_COMMENT="Naturgy Gas test reports"
+
+# Compute repo hash (same formula used in GitHub Actions workflows)
+if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+  REPO_NAME=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
+else
+  REPO_NAME=$(git remote get-url origin | sed 's|.*github.com[:/]||; s|\.git$||')
+fi
+REPO_HASH=$(echo -n "$REPO_NAME" | sha256sum | cut -c1-7)
+
+BUCKET="${PROJECT}-reports-${ENV}-${REPO_HASH}"
+CF_COMMENT="Naturgy Gas test reports ${REPO_HASH}"
 
 echo "╔════════════════════════════════════════════════════╗"
 echo "║  Cleaning up AWS resources (env: ${ENV})          ║"
+echo "║  Repo hash: ${REPO_HASH}                              ║"
 echo "╚════════════════════════════════════════════════════╝"
 
 # ── 1. Find CloudFront distribution ────────────────────────
@@ -63,7 +73,7 @@ fi
 echo ""
 echo "→ Looking for Origin Access Control..."
 OAC_ID=$(aws cloudfront list-origin-access-controls \
-  --query "OriginAccessControlList.Items[?Name=='${PROJECT}-reports-oac'].Id" \
+  --query "OriginAccessControlList.Items[?Name=='${PROJECT}-reports-oac-${REPO_HASH}'].Id" \
   --output text 2>/dev/null || echo "")
 
 if [[ -n "$OAC_ID" && "$OAC_ID" != "None" ]]; then

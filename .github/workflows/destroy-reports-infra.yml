@@ -50,6 +50,13 @@ jobs:
           echo "::add-mask::$REGION"
           echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
 
+      - name: Generate repo hash
+        id: hash
+        run: |
+          REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)
+          echo "repo_hash=$REPO_HASH" >> "$GITHUB_OUTPUT"
+          echo "Repo hash: $REPO_HASH"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
         with:
@@ -66,7 +73,8 @@ jobs:
           set -euo pipefail
           PROJECT="naturgy-gas"
           ENV="${{ github.event.inputs.environment }}"
-          CF_COMMENT="Naturgy Gas test reports"
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
+          CF_COMMENT="Naturgy Gas test reports ${REPO_HASH}"
 
           echo "### 🔍 Looking for CloudFront distribution..." >> "$GITHUB_STEP_SUMMARY"
 
@@ -111,9 +119,10 @@ jobs:
         run: |
           set -euo pipefail
           PROJECT="naturgy-gas"
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
 
           OAC_ID=$(aws cloudfront list-origin-access-controls \
-            --query "OriginAccessControlList.Items[?Name=='${PROJECT}-reports-oac'].Id" \
+            --query "OriginAccessControlList.Items[?Name=='${PROJECT}-reports-oac-${REPO_HASH}'].Id" \
             --output text 2>/dev/null || echo "")
 
           if [[ -n "$OAC_ID" && "$OAC_ID" != "None" ]]; then
@@ -131,7 +140,8 @@ jobs:
           set -euo pipefail
           PROJECT="naturgy-gas"
           ENV="${{ github.event.inputs.environment }}"
-          BUCKET="${PROJECT}-reports-${ENV}"
+          REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
+          BUCKET="${PROJECT}-reports-${ENV}-${REPO_HASH}"
 
           if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             echo "Emptying bucket ${BUCKET}..."

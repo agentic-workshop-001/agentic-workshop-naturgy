@@ -32,8 +32,9 @@ MAIN_BRANCH="main"
 # ── AWS config (for --aws cleanup) ────────────────────────
 PROJECT="naturgy-gas"
 ENV="dev"
-BUCKET="${PROJECT}-reports-${ENV}"
-CF_COMMENT="Naturgy Gas test reports"
+REPO_HASH=$(echo -n "$REPO" | sha256sum | cut -c1-7)
+BUCKET="${PROJECT}-reports-${ENV}-${REPO_HASH}"
+CF_COMMENT="Naturgy Gas test reports ${REPO_HASH}"
 
 # ── Colors ─────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -117,7 +118,7 @@ if [[ "$DO_AWS" == "true" ]]; then
   # ── CloudFront OAC ──────────────────────────────────────
   info "Looking for Origin Access Control..."
   OAC_ID=$(aws cloudfront list-origin-access-controls \
-    --query "OriginAccessControlList.Items[?Name=='${PROJECT}-reports-oac'].Id" \
+    --query "OriginAccessControlList.Items[?Name=='${PROJECT}-reports-oac-${REPO_HASH}'].Id" \
     --output text 2>/dev/null || echo "")
 
   if [[ -n "$OAC_ID" && "$OAC_ID" != "None" ]]; then

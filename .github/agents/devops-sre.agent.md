@@ -182,13 +182,14 @@ Create `terraform/reports/` with these files:
 - `aws_region` (string, default `"eu-west-1"`)
 - `environment` (string, default `"dev"`)
 - `project_name` (string, default `"naturgy-gas"`)
+- `repo_hash` (string, no default — 7-char hex identifier for multi-tenant isolation, validated with `^[a-f0-9]{7}$`)
 
 ### `terraform/reports/s3.tf`
-- **S3 bucket**: `"${var.project_name}-reports-${var.environment}"`, `force_destroy = true`, tagged with `local.common_tags`
-- **CloudFront Origin Access Control**: name `"${var.project_name}-reports-oac"`, origin type `s3`, signing behavior `always`, signing protocol `sigv4`
+- **S3 bucket**: `"${var.project_name}-reports-${var.environment}-${var.repo_hash}"`, `force_destroy = true`, tagged with `local.common_tags`
+- **CloudFront Origin Access Control**: name `"${var.project_name}-reports-oac-${var.repo_hash}"`, origin type `s3`, signing behavior `always`, signing protocol `sigv4`
 - **CloudFront Distribution**:
   - `default_root_object = "index.html"`
-  - `comment = "Naturgy Gas test reports"` (this exact string is used by deploy workflows)
+  - `comment = "Naturgy Gas test reports ${var.repo_hash}"` (this exact pattern is used by deploy workflows to find the distribution)
   - Origin pointing to S3 bucket regional domain with OAC
   - `viewer_protocol_policy = "redirect-to-https"`
   - Cache TTL: `min_ttl=0, default_ttl=300, max_ttl=3600`
