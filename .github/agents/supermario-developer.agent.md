@@ -1,5 +1,5 @@
 ---
-name: supermario-pipeline-engineer
+name: supermario-developer
 description: 'Expert GitHub Actions pipeline engineer. Creates workflows, reusable workflows, composite actions, caching, and deployment automation. Security-first: explicit permissions, SHA-pinned actions.'
 tools: ['read', 'edit', 'search', 'execute']
 ---
@@ -66,3 +66,79 @@ Key paths:
 - ✅ Reference and use Terraform outputs in deploy workflows
 - ⚠️ Ask before: adding new secrets, cross-repo workflow calls, self-hosted runners
 - 🚫 Never: hardcode secrets, skip permissions, use unpinned actions, ignore lint errors
+
+## Default Task: Create Workflows to Deploy Test Reports
+
+When the issue mentions "workflows", "deploy reports", "CI/CD for reports", "upload reports", "infrastructure workflow", or anything about deploying test reports to AWS, implement **exactly** these two workflows:
+
+### AWS Environment (MUST use)
+- Auth: static keys + role assumption
+- Role: `arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC`
+- `role-skip-session-tagging: true`, `role-duration-seconds: 3600`
+- **AWS_REGION secret has trailing whitespace** — always sanitize with `tr -d '[:space:]'`
+
+### Verified Action SHAs (MUST use these exact SHAs)
+| Action | SHA | Version |
+|--------|-----|---------|
+| `actions/checkout` | `11bd71901bbe5b1630ceea73d27597364c9af683` | v4.2.2 |
+| `actions/setup-java` | `3a4f6e1af504cf6a31855fa899c6aa5355ba6c12` | v4.7.0 |
+| `actions/setup-node` | `cdca7365b2dadb8aad0a33bc7601856ffabcc48e` | v4.3.0 |
+| `actions/upload-artifact` | `ea165f8d65b6e75b540449e92b4886f43607fa02` | v4.6.2 |
+| `actions/download-artifact` | `95815c38cf2ff2164869cbab79da8d1f422bc89e` | v4.2.1 |
+| `aws-actions/configure-aws-credentials` | `5579c002bb4778aa43395ef1df492868a9a1c83f` | v4.0.2 |
+| `hashicorp/setup-terraform` | `b9cd54a3c349d3f38e8881555d616ced269862dd` | v3.1.2 |
+
+### Workflow 1: `.github/workflows/create-reports-infra.yml`
+```
+name: "Infra: Create Reports S3"
+trigger: workflow_dispatch (input: environment, default "dev")
+permissions: contents: read
+concurrency: group: reports-infra, cancel-in-progress: false
+```
+**Job: terraform**
+1. Checkout
+2. Sanitise AWS region: `REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"` → mask + output
+3. Configure AWS credentials (static keys + role assumption with role-skip-session-tagging)
+4. Setup Terraform (`terraform_wrapper: false`)
+5. `terraform init` in `terraform/reports/`
+6. Import existing S3 bucket if it exists (idempotent):
+   ```bash
+   BUCKET="naturgy-gas-reports-${{ inputs.environment }}"
+   if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+     terraform import aws_s3_bucket.reports "$BUCKET" || true
+   fi
+   ```
+7. `terraform plan -var="aws_region=$REGION" -var="environment=${{ inputs.environment }}" -out=tfplan`
+8. `terraform apply -auto-approve tfplan`
+9. Show Reports URL in `$GITHUB_STEP_SUMMARY` (table: bucket, distribution ID, URL)
+
+### Workflow 2: `.github/workflows/deploy-reports.yml`
+```
+name: "Deploy: Upload Reports to S3"
+triggers:
+  - workflow_dispatch
+  - workflow_run (on "CI/CD Pipeline" completed on main, only if success)
+permissions: contents: read
+concurrency: group: deploy-reports, cancel-in-progress: true
+```
+**Job 1: build-reports**
+- Checkout
+- Setup Java 17 (temurin, cache: maven), `mvn clean verify -B` in `backend/`
+- Copy `backend/target/site/jacoco/` → `reports/jacoco/`
+- Setup Node 20 (cache: npm, cache-dependency-path: `frontend/package-lock.json`)
+- `cd frontend && npm ci --legacy-peer-deps && npm run test:coverage` (vitest writes to `../reports/vitest/` automatically)
+- Upload `reports/` as artifact (retention 7 days)
+
+**Job 2: upload-reports** (needs: build-reports)
+- Download artifact
+- Sanitise AWS region (same pattern)
+- Configure AWS credentials (same pattern with role assumption)
+- `aws s3 sync reports/ s3://naturgy-gas-reports-${{ inputs.environment || 'dev' }} --delete`
+- Invalidate CloudFront cache:
+  ```bash
+  DIST_ID=$(aws cloudfront list-distributions \
+    --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id" \
+    --output text)
+  aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+  ```
+- Print CloudFront URLs in `$GITHUB_STEP_SUMMARY` (dashboard, jacoco/, vitest/)
