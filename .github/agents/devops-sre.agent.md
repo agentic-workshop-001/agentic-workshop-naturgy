@@ -88,6 +88,16 @@ locals {
 - Pin provider versions: `~> 5.0` (not `>=`)
 - Pin Terraform version in `required_version`
 
+### Lifecycle: Always Create a Destroy Workflow
+- **Every Terraform module that creates infrastructure MUST have a corresponding destroy workflow**
+- If you create `create-<name>-infra.yml`, you MUST also create `destroy-<name>-infra.yml`
+- The destroy workflow must:
+  - Be `workflow_dispatch` only with a `confirmation` input (user types `"destroy"` to proceed)
+  - Import existing resources into Terraform state before destroying (state may not exist)
+  - **Empty S3 buckets before `terraform destroy`** (`aws s3 rm --recursive`) because imported resources don't inherit `force_destroy = true`
+  - Use the same auth, region sanitization, and `repo_hash` patterns as the create workflow
+  - Show a summary table in `$GITHUB_STEP_SUMMARY` with what was destroyed
+
 ## AWS Resource Patterns
 
 ### ECS Fargate Task Definition

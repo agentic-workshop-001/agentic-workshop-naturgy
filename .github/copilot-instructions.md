@@ -79,6 +79,7 @@ Full-stack gas billing application with CI/CD pipeline deployment to AWS.
 - IAM follows least privilege — no wildcard policies
 - Run `terraform fmt` and `terraform validate` before committing
 - **Backend: `local {}`** (no S3 remote state — this is a POC)
+- **Lifecycle rule**: Every Terraform module that has a create/apply workflow MUST also have a destroy workflow (`workflow_dispatch` with `"destroy"` confirmation, import resources before destroying, empty S3 buckets before `terraform destroy`)
 
 ### Reports Infrastructure Convention
 When someone asks to "publish reports", "see reports in the cloud", "host reports on a URL", or any similar request, this is what it means:
