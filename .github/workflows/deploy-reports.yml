@@ -1,0 +1,130 @@
+# ============================================================
+# Deploy Test Reports
+#
+# Downloads JaCoCo + Vitest artifacts produced by the CI/CD
+# Pipeline, uploads them to S3 and invalidates the CloudFront
+# cache so the latest reports are immediately visible.
+#
+# Triggers:
+#   • Automatically after CI/CD Pipeline succeeds on main
+#   • Manually via workflow_dispatch
+# ============================================================
+
+name: Deploy Test Reports
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: false
+        default: "dev"
+        type: choice
+        options: [dev, staging, prod]
+      run_id:
+        description: "CI/CD Pipeline run ID to fetch artifacts from (leave blank for latest)"
+        required: false
+        default: ""
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: deploy-reports-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    name: Deploy – Reports to S3 / CloudFront
+    runs-on: ubuntu-latest
+    # For workflow_run: only proceed when the upstream pipeline succeeded.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # ── Resolve source run ID ──────────────────────────────
+      - name: Resolve source run ID
+        id: run
+        run: |
+          if [ -n "${{ github.event.inputs.run_id }}" ]; then
+            echo "run_id=${{ github.event.inputs.run_id }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "run_id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Download CI artifacts ──────────────────────────────
+      - name: Download JaCoCo report artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: test-report-backend
+          path: reports/jacoco
+          run-id: ${{ steps.run.outputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Vitest coverage artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: test-report-frontend
+          path: reports/vitest
+          run-id: ${{ steps.run.outputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── AWS auth ───────────────────────────────────────────
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+          role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      # ── Sync to S3 ────────────────────────────────────────
+      - name: Sync reports to S3
+        env:
+          BUCKET: naturgy-gas-reports-${{ github.event.inputs.environment || 'dev' }}
+        run: |
+          aws s3 sync reports/ "s3://$BUCKET/" \
+            --delete \
+            --cache-control "max-age=300"
+
+      # ── Invalidate CloudFront ─────────────────────────────
+      - name: Get CloudFront distribution ID
+        id: cf
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].Id | [0]" \
+            --output text)
+          echo "distribution_id=$DIST_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.cf.outputs.distribution_id }}" \
+            --paths "/*"
+
+      - name: Print reports URL
+        run: |
+          DOMAIN=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='Naturgy Gas test reports'].DomainName | [0]" \
+            --output text)
+          echo "Reports available at: https://$DOMAIN"
