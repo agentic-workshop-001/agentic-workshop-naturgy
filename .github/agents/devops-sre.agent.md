@@ -64,6 +64,7 @@ variable "environment" {
 ```hcl
 locals {
   common_tags = {
+    Application = "poc-naturgy"
     Project     = var.project
     Environment = var.environment
     ManagedBy   = "terraform"
