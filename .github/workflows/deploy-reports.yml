@@ -123,6 +123,47 @@ jobs:
           role-duration-seconds: 3600
           role-skip-session-tagging: true
 
+      - name: Check if S3 bucket exists
+        id: check-bucket
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          BUCKET="naturgy-gas-reports-${ENVIRONMENT}-${REPO_HASH}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Bucket $BUCKET not found — will auto-provision infrastructure"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout source (for Terraform)
+        if: steps.check-bucket.outputs.exists == 'false'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Terraform
+        if: steps.check-bucket.outputs.exists == 'false'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      - name: Auto-provision infrastructure
+        if: steps.check-bucket.outputs.exists == 'false'
+        working-directory: terraform/reports
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          set -euo pipefail
+          terraform init
+          terraform plan \
+            -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+            -var="environment=${ENVIRONMENT}" \
+            -var="repo_hash=${REPO_HASH}" \
+            -out=tfplan
+          terraform apply -auto-approve tfplan
+          echo "✅ Infrastructure provisioned automatically" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Sync reports to S3
         env:
           REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
