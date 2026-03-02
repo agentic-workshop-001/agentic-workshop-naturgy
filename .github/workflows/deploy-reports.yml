@@ -119,6 +119,41 @@ jobs:
           role-duration-seconds: 3600
           role-skip-session-tagging: true
 
+      - name: Checkout source (for Terraform)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check if S3 bucket exists
+        id: check-bucket
+        run: |
+          ENV="${{ inputs.environment || 'dev' }}"
+          BUCKET="naturgy-gas-reports-${ENV}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "✓ Bucket ${BUCKET} exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠ Bucket ${BUCKET} not found — will provision infrastructure"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Terraform
+        if: steps.check-bucket.outputs.exists == 'false'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      - name: Provision reports infrastructure
+        if: steps.check-bucket.outputs.exists == 'false'
+        working-directory: terraform/reports
+        run: |
+          ENV="${{ inputs.environment || 'dev' }}"
+          terraform init
+          terraform plan \
+            -var="aws_region=${{ steps.clean.outputs.aws_region }}" \
+            -var="environment=${ENV}" \
+            -out=tfplan
+          terraform apply -auto-approve tfplan
+          echo "✓ Infrastructure provisioned successfully"
+
       - name: Sync reports to S3
         run: |
           ENV="${{ inputs.environment || 'dev' }}"
