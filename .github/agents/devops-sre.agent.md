@@ -41,7 +41,7 @@ terraform/        → Infrastructure as Code
 ### Structure
 - One module per AWS service/concern (see project paths above)
 - Root module composes child modules with explicit variable passing
-- Remote state in S3 with DynamoDB locking
+- **Backend: `local {}`** (no S3 remote state — this is a POC)
 
 ### Variables
 - ALL variables must have `description` and `type`
@@ -64,6 +64,7 @@ variable "environment" {
 ```hcl
 locals {
   common_tags = {
+    Application = "poc-naturgy"
     Project     = var.project
     Environment = var.environment
     ManagedBy   = "terraform"
@@ -164,3 +165,42 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 - ⚠️ Ask before: creating resources with cost implications (NAT Gateway, large instance types)
 - 🚫 Never: hardcode credentials, use overly permissive IAM policies, skip tagging
 - 🚫 Out of scope: Kubernetes, ArgoCD, Helm, Prometheus, Grafana — this is ECS Fargate only
+
+## Default Task: Publish Test Reports to the Cloud
+
+When the issue mentions "reports", "testing reports", "see reports online", "publish reports", "reports in the cloud", "reports via URL/HTTPS", or anything similar, implement **exactly** this:
+
+Create `terraform/reports/` with these files:
+
+### `terraform/reports/main.tf`
+- `required_version >= 1.0`
+- Provider: `hashicorp/aws ~> 5.0`
+- **Backend: `local {}`**
+- `locals.common_tags`: `Application = "poc-naturgy"`, `Project = var.project_name`, `Environment = var.environment`, `ManagedBy = "terraform"`, `Purpose = "test-reports"`
+
+### `terraform/reports/variables.tf`
+- `aws_region` (string, default `"eu-west-1"`)
+- `environment` (string, default `"dev"`)
+- `project_name` (string, default `"naturgy-gas"`)
+
+### `terraform/reports/s3.tf`
+- **S3 bucket**: `"${var.project_name}-reports-${var.environment}"`, `force_destroy = true`, tagged with `local.common_tags`
+- **CloudFront Origin Access Control**: name `"${var.project_name}-reports-oac"`, origin type `s3`, signing behavior `always`, signing protocol `sigv4`
+- **CloudFront Distribution**:
+  - `default_root_object = "index.html"`
+  - `comment = "Naturgy Gas test reports"` (this exact string is used by deploy workflows)
+  - Origin pointing to S3 bucket regional domain with OAC
+  - `viewer_protocol_policy = "redirect-to-https"`
+  - Cache TTL: `min_ttl=0, default_ttl=300, max_ttl=3600`
+  - No geo restrictions
+  - Default CloudFront certificate (no custom domain)
+  - Tagged with `local.common_tags`
+- **S3 bucket policy**: Allow `s3:GetObject` from CloudFront service principal (`cloudfront.amazonaws.com`), conditioned on `AWS:SourceArn` = CloudFront distribution ARN
+
+### `terraform/reports/outputs.tf`
+- `reports_bucket_name` — S3 bucket ID
+- `reports_url` — `"https://${cloudfront_distribution.domain_name}"`
+- `cloudfront_distribution_id` — distribution ID
+
+### Validation
+Run `terraform fmt` and `terraform validate` on the module.
