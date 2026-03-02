@@ -118,8 +118,7 @@ concurrency: group: reports-infra, cancel-in-progress: false
 ```
 name: "Deploy: Upload Reports to S3"
 triggers:
-  - workflow_dispatch
-  - workflow_run (on "CI/CD Pipeline" completed on main, only if success)
+  - workflow_dispatch only (do NOT add workflow_run — deployment should be intentional)
 permissions: contents: read
 concurrency: group: deploy-reports, cancel-in-progress: true
 ```
