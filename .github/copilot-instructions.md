@@ -135,6 +135,25 @@ This repo uses custom agents in `.github/agents/`:
 
 Each agent is self-contained with its specialized rules inlined.
 
+### Issue Creation Rules (for humans setting up demos)
+
+A client request often touches multiple agents. **Create one GitHub issue per agent needed**, in dependency order. Each issue is assigned to Copilot, which routes it to the right agent automatically.
+
+**Example**: Client says _"Quiero ver los reportes en internet, en AWS, con HTTPS"_
+
+That requires **two issues**, created and assigned **in order**:
+
+| Order | Issue title (example) | Agent | Why |
+|-------|----------------------|-------|-----|
+| 1 | _"Infraestructura Terraform para publicar reportes en AWS"_ | `devops-sre` | Creates S3 + CloudFront + OAC in `terraform/reports/` |
+| 2 | _"Workflows para crear infra, publicar reportes y destruir infra"_ | `supermario-developer` | Creates `create-reports-infra.yml`, `deploy-reports.yml`, `destroy-reports-infra.yml` |
+
+**Rules**:
+- One issue = one agent = one PR. Never mix Terraform and workflow creation in the same issue.
+- Assign Copilot to issue #1, wait for the PR, **merge it**, then assign Copilot to issue #2. The second agent needs the Terraform files to exist in `main` before generating workflows that reference them.
+- If a single agent needs to produce multiple independent deliverables, it's fine as one issue (e.g. the `supermario-developer` agent creates all 3 workflow files in one PR).
+- Labels help route: `infrastructure` → `devops-sre`, `ci-cd` → `supermario-developer`.
+
 ## Branch Management
 
 | Branch | Purpose | Content |
