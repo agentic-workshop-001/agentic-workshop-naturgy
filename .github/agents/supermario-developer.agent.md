@@ -102,12 +102,34 @@ concurrency: group: reports-infra, cancel-in-progress: false
 4. Configure AWS credentials (static keys + role assumption with role-skip-session-tagging)
 5. Setup Terraform (`terraform_wrapper: false`)
 6. `terraform init` in `terraform/reports/`
-7. Import existing S3 bucket if it exists (idempotent):
+7. Import existing resources if they exist (idempotent — state is lost after every runner):
    ```bash
    REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
-   BUCKET="naturgy-gas-reports-${{ inputs.environment }}-${REPO_HASH}"
+   ENV="${{ inputs.environment }}"
+   BUCKET="naturgy-gas-reports-${ENV}-${REPO_HASH}"
+   TF_VARS="-var=repo_hash=${REPO_HASH} -var=environment=${ENV} -var=aws_region=${REGION}"
+
+   # Import S3 bucket
    if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-     terraform import -var="repo_hash=${REPO_HASH}" aws_s3_bucket.reports "$BUCKET" || true
+     terraform import $TF_VARS aws_s3_bucket.reports "$BUCKET" || true
+   fi
+
+   # Import CloudFront OAC
+   OAC_NAME="naturgy-gas-reports-oac-${REPO_HASH}"
+   OAC_ID=$(aws cloudfront list-origin-access-controls \
+     --query "OriginAccessControlList.Items[?Name=='${OAC_NAME}'].Id" \
+     --output text)
+   if [ -n "$OAC_ID" ]; then
+     terraform import $TF_VARS aws_cloudfront_origin_access_control.reports "$OAC_ID" || true
+   fi
+
+   # Import CloudFront distribution
+   CF_COMMENT="Naturgy Gas test reports ${REPO_HASH}"
+   DIST_ID=$(aws cloudfront list-distributions \
+     --query "DistributionList.Items[?Comment=='${CF_COMMENT}'].Id" \
+     --output text)
+   if [ -n "$DIST_ID" ]; then
+     terraform import $TF_VARS aws_cloudfront_distribution.reports "$DIST_ID" || true
    fi
    ```
 8. `terraform plan -var="aws_region=$REGION" -var="environment=${{ inputs.environment }}" -var="repo_hash=$REPO_HASH" -out=tfplan`
@@ -162,3 +184,38 @@ concurrency: group: deploy-reports, cancel-in-progress: true
 - Print CloudFront URLs in `$GITHUB_STEP_SUMMARY` (dashboard, jacoco/, vitest/)
 
 > **IMPORTANT**: The deploy workflow MUST always include the auto-provision pattern above. It must NEVER assume the infrastructure already exists. This is critical because the deploy triggers automatically when CI/CD succeeds, and on first run the infra won't exist yet.
+
+### Workflow 3: `.github/workflows/destroy-reports-infra.yml`
+```
+name: "Infra: Destroy Reports S3"
+trigger: workflow_dispatch
+inputs:
+  environment (string, default "dev")
+  confirmation (string — user must type "destroy" to proceed)
+permissions: contents: read
+concurrency: group: reports-infra, cancel-in-progress: false
+```
+**Job: terraform** — first step validates `inputs.confirmation == 'destroy'`; if not, run `echo "::error::Type 'destroy' to confirm" && exit 1`
+
+1. Checkout
+2. Sanitise AWS region (same `tr -d '[:space:]'` pattern → `steps.clean.outputs.aws_region`)
+3. Generate repo hash (same `sha256sum | cut -c1-7` pattern → `steps.hash.outputs.repo_hash`)
+4. Configure AWS credentials (same static keys + role assumption pattern)
+5. Setup Terraform (`hashicorp/setup-terraform@<sha>`, `terraform_wrapper: false`)
+6. `terraform init` in `terraform/reports/`
+7. Import all 3 existing resources into empty state (same block as `create-reports-infra.yml`: S3 bucket, OAC by name, CloudFront distribution by comment)
+8. **Empty S3 bucket before destroy** (imported resources don't inherit `force_destroy = true`):
+   ```bash
+   REPO_HASH="${{ steps.hash.outputs.repo_hash }}"
+   BUCKET="naturgy-gas-reports-${{ inputs.environment }}-${REPO_HASH}"
+   aws s3 rm "s3://${BUCKET}" --recursive || true
+   ```
+9. `terraform destroy -auto-approve -var="aws_region=${REGION}" -var="environment=${{ inputs.environment }}" -var="repo_hash=${REPO_HASH}"`
+10. Show destruction summary in `$GITHUB_STEP_SUMMARY`:
+    ```
+    | Resource | Status |
+    |----------|--------|
+    | S3 bucket naturgy-gas-reports-<env>-<hash> | Destroyed |
+    | CloudFront distribution | Destroyed |
+    | CloudFront OAC | Destroyed |
+    ```

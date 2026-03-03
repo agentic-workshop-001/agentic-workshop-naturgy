@@ -26,7 +26,7 @@ terraform/        → Infrastructure as Code
   ├── variables.tf
   ├── outputs.tf
   ├── providers.tf
-  ├── backend.tf          → S3 remote state
+  ├── backend.tf          → local {} (no remote state — this is a POC)
   └── modules/
       ├── networking/     → VPC, subnets, security groups
       ├── ecr/            → Container registry
@@ -88,15 +88,11 @@ locals {
 - Pin provider versions: `~> 5.0` (not `>=`)
 - Pin Terraform version in `required_version`
 
-### Lifecycle: Always Create a Destroy Workflow
-- **Every Terraform module that creates infrastructure MUST have a corresponding destroy workflow**
-- If you create `create-<name>-infra.yml`, you MUST also create `destroy-<name>-infra.yml`
-- The destroy workflow must:
-  - Be `workflow_dispatch` only with a `confirmation` input (user types `"destroy"` to proceed)
-  - Import existing resources into Terraform state before destroying (state may not exist)
-  - **Empty S3 buckets before `terraform destroy`** (`aws s3 rm --recursive`) because imported resources don't inherit `force_destroy = true`
-  - Use the same auth, region sanitization, and `repo_hash` patterns as the create workflow
-  - Show a summary table in `$GITHUB_STEP_SUMMARY` with what was destroyed
+### Lifecycle: Destroy Workflow Required
+- **Every Terraform module you create MUST have a corresponding destroy workflow** — but that workflow is created by the `supermario-developer` agent, not by you.
+- Your responsibility: create the Terraform module correctly so the destroy workflow can import and destroy all resources.
+- In your PR description, note: "A destroy workflow (`destroy-<name>-infra.yml`) is required — create a follow-up issue assigned to `supermario-developer`."
+- Ensure every resource that might need destroying is importable: use stable, deterministic names based on `repo_hash` so the destroy workflow can look them up by name/tag/comment.
 
 ## AWS Resource Patterns
 
