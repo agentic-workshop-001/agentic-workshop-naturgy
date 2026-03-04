@@ -1,0 +1,135 @@
+# ============================================================
+# Infra: Create Frontend S3 + CloudFront
+#
+# Provisions S3 bucket, CloudFront distribution with OAC
+# for static frontend hosting with HTTPS.
+# ============================================================
+
+name: "Infra: Create Frontend S3"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: false
+        default: "dev"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-infra-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Sanitise AWS region
+        id: clean
+        run: |
+          REGION="$(echo -n "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')"
+          echo "::add-mask::$REGION"
+          echo "aws_region=$REGION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate repo hash
+        id: hash
+        run: |
+          REPO_HASH=$(echo -n "${{ github.repository }}" | sha256sum | cut -c1-7)
+          echo "repo_hash=$REPO_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@5579c002bb4778aa43395ef1df492868a9a1c83f # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ steps.clean.outputs.aws_region }}
+          role-to-assume: arn:aws:iam::223876296831:role/AWS_223876296831_PoC-Naturgy-IA-TDLC
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: terraform/frontend
+        run: terraform init
+
+      - name: Import existing resources (idempotent)
+        working-directory: terraform/frontend
+        env:
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENV: ${{ inputs.environment }}
+          REGION: ${{ steps.clean.outputs.aws_region }}
+        run: |
+          TF_VARS="-var=repo_hash=${REPO_HASH} -var=environment=${ENV} -var=aws_region=${REGION}"
+          BUCKET="naturgy-gas-frontend-${ENV}-${REPO_HASH}"
+
+          # Import S3 bucket
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Importing S3 bucket: $BUCKET"
+            terraform import $TF_VARS aws_s3_bucket.frontend "$BUCKET" || true
+          fi
+
+          # Import CloudFront OAC
+          OAC_NAME="naturgy-gas-frontend-oac-${REPO_HASH}"
+          OAC_ID=$(aws cloudfront list-origin-access-controls \
+            --query "OriginAccessControlList.Items[?Name=='${OAC_NAME}'].Id" \
+            --output text 2>/dev/null || echo "")
+          if [ -n "$OAC_ID" ] && [ "$OAC_ID" != "None" ]; then
+            echo "Importing CloudFront OAC: $OAC_ID"
+            terraform import $TF_VARS aws_cloudfront_origin_access_control.frontend "$OAC_ID" || true
+          fi
+
+          # Import CloudFront distribution
+          CF_COMMENT="Naturgy Gas frontend ${REPO_HASH}"
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='${CF_COMMENT}'].Id" \
+            --output text 2>/dev/null || echo "")
+          if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
+            echo "Importing CloudFront distribution: $DIST_ID"
+            terraform import $TF_VARS aws_cloudfront_distribution.frontend "$DIST_ID" || true
+          fi
+
+      - name: Terraform plan
+        working-directory: terraform/frontend
+        env:
+          REGION: ${{ steps.clean.outputs.aws_region }}
+          REPO_HASH: ${{ steps.hash.outputs.repo_hash }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          terraform plan \
+            -var="aws_region=${REGION}" \
+            -var="environment=${ENV}" \
+            -var="repo_hash=${REPO_HASH}" \
+            -out=tfplan
+
+      - name: Terraform apply
+        working-directory: terraform/frontend
+        run: terraform apply -auto-approve tfplan
+
+      - name: Show frontend URL
+        working-directory: terraform/frontend
+        run: |
+          URL=$(terraform output -raw frontend_url)
+          BUCKET=$(terraform output -raw frontend_bucket_name)
+          DIST_ID=$(terraform output -raw cloudfront_distribution_id)
+
+          echo "## Frontend Infrastructure Created" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Resource | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| S3 Bucket | \`${BUCKET}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CloudFront ID | \`${DIST_ID}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Frontend URL | ${URL} |" >> "$GITHUB_STEP_SUMMARY"
